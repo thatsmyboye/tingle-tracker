@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Tingle Tracker",
+    "slug": "tingle-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.tingletracker.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0F"
+      },
+      "package": "com.tingletracker.app"
+    },
+    "plugins": ["expo-router"],
+    "scheme": "tingle-tracker"
+  }
+}
