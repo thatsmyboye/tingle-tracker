@@ -69,5 +69,10 @@ double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
 enable_confirmations = false
 
+[auth.anonymous]
+# Allow unauthenticated users to create an anonymous session. Enables guest tingle logging.
+# Anonymous accounts can be upgraded to full accounts via linkIdentity() or updateUser().
+enabled = true
+
 [analytics]
 enabled = false

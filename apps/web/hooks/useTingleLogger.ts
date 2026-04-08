@@ -3,10 +3,23 @@
 import { useCallback, useRef, useState } from "react";
 import type { PlayerAdapterRef, TingleIntensity } from "@tingle/types";
 import { getSupabaseBrowserClient } from "@tingle/database";
+import {
+  hasBannerBeenShown,
+  markBannerShown,
+  saveAnonUserId,
+} from "@/lib/anonAuth";
 
 // =============================================================================
 // useTingleLogger — web
-// Handles tingle event creation with debounce and sessionStorage offline queue.
+//
+// When userId is null (unauthenticated):
+//   1. On first log() call, signInAnonymously() is called to obtain a real UUID.
+//   2. The anonymous user_id is saved to localStorage for later merge.
+//   3. showAuthBanner becomes true (once per anonymous session).
+//
+// When userId is a real authenticated user_id:
+//   • Anonymous session creation is skipped.
+//   • showAuthBanner is always false.
 // =============================================================================
 
 const DEBOUNCE_MS = 500;
@@ -33,14 +46,13 @@ function writeQueue(queue: QueuedEvent[]): void {
   try {
     sessionStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
   } catch {
-    // sessionStorage unavailable — silent fail
+    // ignore
   }
 }
 
 async function flushQueue(): Promise<void> {
   const queue = readQueue();
   if (queue.length === 0) return;
-
   const supabase = getSupabaseBrowserClient();
   const { error } = await supabase.from("tingle_events").insert(queue);
   if (!error) writeQueue([]);
@@ -52,7 +64,8 @@ async function flushQueue(): Promise<void> {
 
 export interface UseTingleLoggerOptions {
   contentId: string;
-  userId: string;
+  /** null when the visitor is not yet authenticated */
+  userId: string | null;
   playerRef: React.RefObject<PlayerAdapterRef | null>;
 }
 
@@ -61,6 +74,9 @@ export interface UseTingleLoggerReturn {
   pendingCount: number;
   lastLoggedMs: number | null;
   isDebouncing: boolean;
+  /** True after the first anonymous tingle, until dismissed */
+  showAuthBanner: boolean;
+  dismissAuthBanner: () => void;
 }
 
 export function useTingleLogger({
@@ -68,10 +84,39 @@ export function useTingleLogger({
   userId,
   playerRef,
 }: UseTingleLoggerOptions): UseTingleLoggerReturn {
+  // Effective user ID — starts as the prop, may be set to an anon UUID
+  const effectiveUserIdRef = useRef<string | null>(userId);
   const lastEventTime = useRef<number>(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [lastLoggedMs, setLastLoggedMs] = useState<number | null>(null);
   const [isDebouncing, setIsDebouncing] = useState(false);
+  const [showAuthBanner, setShowAuthBanner] = useState(false);
+
+  // Keep effectiveUserIdRef in sync when a real user logs in
+  if (userId !== null && effectiveUserIdRef.current !== userId) {
+    effectiveUserIdRef.current = userId;
+  }
+
+  /** Ensure we have a user_id (real or anonymous) before writing to DB */
+  async function resolveUserId(): Promise<string | null> {
+    if (effectiveUserIdRef.current) return effectiveUserIdRef.current;
+
+    const supabase = getSupabaseBrowserClient();
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error || !data.user) return null;
+
+    const anonId = data.user.id;
+    effectiveUserIdRef.current = anonId;
+    saveAnonUserId(anonId);
+
+    // Show the banner only once per anonymous session
+    if (!hasBannerBeenShown(anonId)) {
+      setShowAuthBanner(true);
+      markBannerShown(anonId);
+    }
+
+    return anonId;
+  }
 
   const log = useCallback(
     async (intensity: TingleIntensity = "3", notes?: string) => {
@@ -83,28 +128,27 @@ export function useTingleLogger({
       }
       lastEventTime.current = now;
 
+      const resolvedId = await resolveUserId();
+      if (!resolvedId) return; // anonymous sign-in failed — silent skip
+
       const timestampMs = playerRef.current
         ? await playerRef.current.getCurrentTimeMs()
         : 0;
-
       setLastLoggedMs(Math.round(timestampMs));
 
       const event: QueuedEvent = {
         content_id: contentId,
-        user_id: userId,
+        user_id: resolvedId,
         timestamp_ms: Math.round(timestampMs),
         intensity,
         ...(notes ? { notes } : {}),
       };
 
-      // Try flushing any previously queued events first, then write current one
       await flushQueue();
 
       const supabase = getSupabaseBrowserClient();
       const { error } = await supabase.from("tingle_events").insert(event);
-
       if (error) {
-        // Save to offline queue
         const queue = readQueue();
         queue.push(event);
         writeQueue(queue);
@@ -113,8 +157,20 @@ export function useTingleLogger({
         setPendingCount(0);
       }
     },
-    [contentId, userId, playerRef]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contentId, playerRef]
   );
 
-  return { log, pendingCount, lastLoggedMs, isDebouncing };
+  const dismissAuthBanner = useCallback(() => {
+    setShowAuthBanner(false);
+  }, []);
+
+  return {
+    log,
+    pendingCount,
+    lastLoggedMs,
+    isDebouncing,
+    showAuthBanner,
+    dismissAuthBanner,
+  };
 }

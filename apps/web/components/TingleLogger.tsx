@@ -4,17 +4,24 @@ import { useRef, useState } from "react";
 import type { PlayerAdapterRef, TingleIntensity } from "@tingle/types";
 import { cn } from "@tingle/ui";
 import { useTingleLogger } from "@/hooks/useTingleLogger";
+import { GuestBanner } from "./GuestBanner";
+import { useAuth } from "@/hooks/useAuth";
 
 // =============================================================================
 // TingleLogger — web
-// Renders a tap button overlaid on or alongside a video player.
+// Renders a tap button alongside a video player.
 // Click logs a tingle at the current playback position.
-// Right-click or clicking the intensity strip selects a custom intensity.
+//
+// When userId is null (unauthenticated):
+//   • First tap transparently creates an anonymous Supabase session.
+//   • A non-blocking GuestBanner appears once prompting sign-in.
+//   • If the user signs in, their anonymous tingles are merged automatically.
 // =============================================================================
 
 interface TingleLoggerProps {
   contentId: string;
-  userId: string;
+  /** null for unauthenticated visitors */
+  userId: string | null;
   playerRef: React.RefObject<PlayerAdapterRef | null>;
   className?: string;
 }
@@ -39,17 +46,15 @@ export function TingleLogger({
   const [showPulse, setShowPulse] = useState(false);
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { log, pendingCount, isDebouncing } = useTingleLogger({
-    contentId,
-    userId,
-    playerRef,
-  });
+  const { log, pendingCount, isDebouncing, showAuthBanner, dismissAuthBanner } =
+    useTingleLogger({ contentId, userId, playerRef });
+
+  const { signInWithGoogle } = useAuth();
 
   async function handleTap() {
     if (isDebouncing) return;
     await log(intensity);
 
-    // Pulse animation feedback
     setShowPulse(true);
     if (pulseTimer.current) clearTimeout(pulseTimer.current);
     pulseTimer.current = setTimeout(() => setShowPulse(false), 400);
@@ -57,6 +62,15 @@ export function TingleLogger({
 
   return (
     <div className={cn("flex flex-col items-center gap-3", className)}>
+      {/* Guest banner — shown once per anonymous session after first tingle */}
+      {showAuthBanner && (
+        <GuestBanner
+          onSignInWithGoogle={signInWithGoogle}
+          onDismiss={dismissAuthBanner}
+          className="w-full max-w-sm"
+        />
+      )}
+
       {/* Tap button */}
       <button
         onClick={handleTap}
@@ -72,7 +86,6 @@ export function TingleLogger({
         )}
       >
         ✦
-        {/* Ripple ring on pulse */}
         {showPulse && (
           <span className="absolute inset-0 animate-ping rounded-full border border-tingle-aqua/40" />
         )}
@@ -104,9 +117,9 @@ export function TingleLogger({
         {isDebouncing ? (
           <span className="text-tingle-gold/70">wait…</span>
         ) : pendingCount > 0 ? (
-          <span className="text-tingle-gold/70">
-            {pendingCount} pending (offline)
-          </span>
+          <span className="text-tingle-gold/70">{pendingCount} pending (offline)</span>
+        ) : userId === null ? (
+          <span className="text-surface-muted/60">guest mode · tap to log</span>
         ) : (
           <span>tap to log · intensity {intensity}</span>
         )}
