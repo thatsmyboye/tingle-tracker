@@ -384,7 +384,7 @@ SELECT
   -- Bucket into 10-second windows
   (te.timestamp_ms / 10000) * 10000 AS bucket_start_ms,
   COUNT(*)                           AS tingle_count,
-  AVG(te.intensity::int)             AS avg_intensity
+  AVG(te.intensity::text::int)             AS avg_intensity
 FROM tingle_events te
 GROUP BY te.content_id, bucket_start_ms
 ORDER BY te.content_id, bucket_start_ms;
@@ -397,7 +397,7 @@ SELECT
   tt.label       AS trigger_label,
   tt.category    AS trigger_category,
   COUNT(te.id)   AS total_tingles,
-  AVG(te.intensity::int) AS avg_intensity
+  AVG(te.intensity::text::int) AS avg_intensity
 FROM tingle_events te
 JOIN content c ON c.id = te.content_id
 JOIN content_triggers ct ON ct.content_id = c.id
@@ -413,7 +413,7 @@ SELECT
   tt.label         AS trigger_label,
   tt.category      AS trigger_category,
   COUNT(te.id)     AS tingle_count,
-  AVG(te.intensity::int) AS avg_intensity
+  AVG(te.intensity::text::int) AS avg_intensity
 FROM tingle_events te
 JOIN content_triggers ct ON ct.content_id = te.content_id
 JOIN trigger_tags tt ON tt.id = ct.trigger_tag_id
