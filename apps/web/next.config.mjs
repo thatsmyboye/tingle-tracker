@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   transpilePackages: ["@tingle/ui", "@tingle/database", "@tingle/types", "@tingle/ai"],
   images: {
     remotePatterns: [
