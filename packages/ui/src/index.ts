@@ -7,3 +7,8 @@ export {
   type YouTubePlayerRef,
   type YouTubePlayerProps,
 } from "./YouTubePlayer";
+export {
+  VimeoPlayer,
+  type VimeoPlayerRef,
+  type VimeoPlayerProps,
+} from "./VimeoPlayer";

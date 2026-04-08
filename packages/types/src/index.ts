@@ -10,6 +10,25 @@ export type TriggerCategory = "visual" | "aural" | "tactile_adjacent";
 /** String ENUM matching Postgres tingle_intensity enum values */
 export type TingleIntensity = "1" | "2" | "3" | "4" | "5";
 
+/** Supported content platforms */
+export type ContentPlatform = "youtube" | "vimeo" | "soundcloud";
+
+// ---- Player adapter ---------------------------------------------------------
+
+/**
+ * Shared interface all video/audio player components must satisfy.
+ * getCurrentTimeMs / getDurationMs may return a Promise because some
+ * platforms (Vimeo, SoundCloud) are inherently async (postMessage bridge).
+ * YouTube returns synchronously but is also typed as Promise for uniformity.
+ */
+export interface PlayerAdapterRef {
+  getCurrentTimeMs(): Promise<number>;
+  getDurationMs(): Promise<number>;
+  pause(): void;
+  play(): void;
+  seekToMs(ms: number): void;
+}
+
 export type ContentStatus = "pending" | "processing" | "ready" | "error";
 
 export type InsightStatus = "pending" | "generating" | "ready" | "error";

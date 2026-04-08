@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   useRef,
 } from "react";
+import type { PlayerAdapterRef } from "@tingle/types";
 import { cn } from "./lib/cn";
 
 // =============================================================================
@@ -56,18 +57,10 @@ interface YTPlayer {
 }
 
 // =============================================================================
-// Public ref API — use this to read playback position from a parent component
+// Public ref API — satisfies PlayerAdapterRef from @tingle/types
 // =============================================================================
 
-export interface YouTubePlayerRef {
-  /** Current playback position in milliseconds */
-  getCurrentTimeMs(): number;
-  /** Total video duration in milliseconds */
-  getDurationMs(): number;
-  pause(): void;
-  play(): void;
-  seekToMs(ms: number): void;
-}
+export interface YouTubePlayerRef extends PlayerAdapterRef {}
 
 // =============================================================================
 // Props
@@ -136,9 +129,9 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(
     useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
     useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
-    useImperativeHandle(ref, () => ({
-      getCurrentTimeMs: () => (playerRef.current?.getCurrentTime() ?? 0) * 1000,
-      getDurationMs: () => (playerRef.current?.getDuration() ?? 0) * 1000,
+    useImperativeHandle(ref, (): YouTubePlayerRef => ({
+      getCurrentTimeMs: () => Promise.resolve((playerRef.current?.getCurrentTime() ?? 0) * 1000),
+      getDurationMs: () => Promise.resolve((playerRef.current?.getDuration() ?? 0) * 1000),
       pause: () => playerRef.current?.pauseVideo(),
       play: () => playerRef.current?.playVideo(),
       seekToMs: (ms: number) => playerRef.current?.seekTo(ms / 1000, true),
