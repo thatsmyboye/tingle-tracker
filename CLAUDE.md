@@ -128,8 +128,13 @@ pnpm turbo type-check                 # type-check all packages
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=
+# New Supabase projects: use NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY (replaces ANON_KEY)
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+# Shared Pooler URL (IPv4 compatible) — use for migrations and direct DB access
+# Format: postgresql://postgres.PROJECT_REF:PASSWORD@REGION.pooler.supabase.com:5432/postgres
+SUPABASE_DB_URL=
 ANTHROPIC_API_KEY=
 YOUTUBE_DATA_API_KEY=
 INNGEST_EVENT_KEY=
