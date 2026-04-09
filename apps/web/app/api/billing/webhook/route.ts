@@ -65,10 +65,11 @@ export async function POST(request: NextRequest) {
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.mode !== "subscription" || !session.subscription) break;
 
-        const creatorId = session.subscription_data?.metadata?.creator_id as string | undefined;
-        if (!creatorId) break;
-
+        // subscription_data.metadata is passed at creation time and lands on
+        // the Subscription object — retrieve it to read creator_id.
         const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+        const creatorId = subscription.metadata?.creator_id as string | undefined;
+        if (!creatorId) break;
         const priceId = subscription.items.data[0]?.price.id;
         const plan = priceId ? getPlanFromPriceId(priceId) : null;
 
