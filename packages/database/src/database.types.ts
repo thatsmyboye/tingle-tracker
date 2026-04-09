@@ -19,6 +19,11 @@ export type Database = {
           youtube_channel_id: string | null;
           youtube_channel_url: string | null;
           is_verified: boolean;
+          plan: Database["public"]["Enums"]["creator_plan"];
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          subscription_status: Database["public"]["Enums"]["subscription_status"] | null;
+          plan_expires_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -31,6 +36,11 @@ export type Database = {
           youtube_channel_id?: string | null;
           youtube_channel_url?: string | null;
           is_verified?: boolean;
+          plan?: Database["public"]["Enums"]["creator_plan"];
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          subscription_status?: Database["public"]["Enums"]["subscription_status"] | null;
+          plan_expires_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -43,6 +53,11 @@ export type Database = {
           youtube_channel_id?: string | null;
           youtube_channel_url?: string | null;
           is_verified?: boolean;
+          plan?: Database["public"]["Enums"]["creator_plan"];
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          subscription_status?: Database["public"]["Enums"]["subscription_status"] | null;
+          plan_expires_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -348,6 +363,8 @@ export type Database = {
       tingle_intensity: "1" | "2" | "3" | "4" | "5";
       content_status: "pending" | "processing" | "ready" | "error";
       insight_status: "pending" | "generating" | "ready" | "error";
+      creator_plan: "free" | "pro" | "studio";
+      subscription_status: "active" | "trialing" | "past_due" | "canceled" | "incomplete" | "incomplete_expired" | "unpaid" | "paused";
     };
     CompositeTypes: Record<string, never>;
   };
