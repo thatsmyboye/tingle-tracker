@@ -17,6 +17,17 @@ import { getSupabaseServerClient } from "@tingle/database";
 // Required env var: STRIPE_WEBHOOK_SECRET (from Stripe dashboard → Webhooks)
 // =============================================================================
 
+// Stripe moved current_period_end off the top-level Subscription object in
+// newer API versions — it now lives on each subscription item. This helper
+// reads it from either location so the code works across API versions.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getPeriodEnd(subscription: Stripe.Subscription): string | null {
+  const raw =
+    (subscription.items.data[0] as any)?.current_period_end ??
+    (subscription as any).current_period_end;
+  return typeof raw === "number" ? new Date(raw * 1000).toISOString() : null;
+}
+
 // Maps Stripe Price IDs to plan names. Configure in Stripe dashboard and set
 // as environment variables.
 function getPlanFromPriceId(priceId: string): "pro" | "studio" | null {
@@ -79,7 +90,7 @@ export async function POST(request: NextRequest) {
             plan: plan ?? "free",
             stripe_subscription_id: subscription.id,
             subscription_status: subscription.status as "active" | "trialing" | "past_due" | "canceled" | "incomplete" | "incomplete_expired" | "unpaid" | "paused",
-            plan_expires_at: new Date(subscription.current_period_end * 1000).toISOString(),
+            plan_expires_at: getPeriodEnd(subscription),
           })
           .eq("id", creatorId);
 
@@ -100,7 +111,7 @@ export async function POST(request: NextRequest) {
             plan: plan ?? "free",
             stripe_subscription_id: subscription.id,
             subscription_status: subscription.status as "active" | "trialing" | "past_due" | "canceled" | "incomplete" | "incomplete_expired" | "unpaid" | "paused",
-            plan_expires_at: new Date(subscription.current_period_end * 1000).toISOString(),
+            plan_expires_at: getPeriodEnd(subscription),
           })
           .eq("id", creatorId);
 
