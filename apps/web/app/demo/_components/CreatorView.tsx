@@ -224,11 +224,17 @@ export function CreatorView() {
         </p>
         <button
           onClick={handleReset}
-          className="text-xs text-surface-muted hover:text-tingle-aqua transition-colors"
+          className="text-xs text-tingle-aqua/60 hover:text-tingle-aqua transition-colors"
         >
           ← Reset demo
         </button>
       </div>
+
+      {/* Summary insight */}
+      <p className="font-mono text-sm text-surface-muted leading-relaxed border-l-2 border-tingle-aqua/30 pl-4">
+        Listeners are clearly responding to the whisper + tapping sequences —
+        the strongest spikes cluster at 1:30, 4:00, 6:30, and 8:30.
+      </p>
 
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-4">

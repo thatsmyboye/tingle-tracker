@@ -114,10 +114,13 @@ export function useAuth(): UseAuthReturn {
   // ---- Actions -------------------------------------------------------------
 
   const signInWithGoogle = useCallback(async () => {
+    // Redirect to /auth/callback so the PKCE code can be exchanged server-side.
+    // Pass the current path as `next` so the user returns to where they were.
+    const next = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: typeof window !== "undefined" ? window.location.href : undefined,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
   }, [supabase]);
