@@ -3,21 +3,26 @@
 // =============================================================================
 // /auth/callback — OAuth PKCE code exchange
 //
-// Supabase redirects here after Google OAuth with ?code=<pkce-code>.
-// This page runs client-side and calls exchangeCodeForSession() using the
-// browser Supabase client, which stores the resulting session in localStorage.
-//
-// An optional ?next=<path> param controls where to redirect after sign-in.
-// Implicit-flow sign-ins (tokens in URL hash) are handled automatically by
-// the Supabase client; we just redirect to the destination once the session
-// is confirmed.
+// useSearchParams() must be inside a Suspense boundary in Next.js 14 App
+// Router, otherwise the page fails static prerendering. The actual logic lives
+// in CallbackHandler; AuthCallbackPage is the thin shell that provides the
+// boundary and the loading UI.
 // =============================================================================
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "@tingle/database";
 
-export default function AuthCallbackPage() {
+function Spinner() {
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <span className="w-5 h-5 rounded-full border border-tingle-aqua border-t-transparent animate-spin" />
+      <p className="font-mono text-sm text-surface-muted">Completing sign-in…</p>
+    </div>
+  );
+}
+
+function CallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -33,7 +38,6 @@ export default function AuthCallbackPage() {
       });
     } else {
       // Implicit flow: Supabase automatically detects tokens in the URL hash.
-      // Just verify a session exists and redirect accordingly.
       supabase.auth.getSession().then(({ data: { session } }) => {
         router.replace(session ? next : "/");
       });
@@ -41,12 +45,15 @@ export default function AuthCallbackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  return <Spinner />;
+}
+
+export default function AuthCallbackPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface">
-      <div className="flex flex-col items-center gap-3">
-        <span className="w-5 h-5 rounded-full border border-tingle-aqua border-t-transparent animate-spin" />
-        <p className="font-mono text-sm text-surface-muted">Completing sign-in…</p>
-      </div>
+      <Suspense fallback={<Spinner />}>
+        <CallbackHandler />
+      </Suspense>
     </main>
   );
 }
