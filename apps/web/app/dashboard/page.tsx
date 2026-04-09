@@ -173,7 +173,7 @@ export default function DashboardPage() {
 
   // ---- No creator profile ---------------------------------------------------
 
-  if (creator === null) {
+  if (!creator) {
     return (
       <main className="min-h-screen bg-surface font-mono p-6 max-w-2xl mx-auto pt-20">
         <h1 className="font-serif text-3xl text-white mb-2">Creator Dashboard</h1>
