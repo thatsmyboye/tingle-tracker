@@ -110,6 +110,48 @@ export async function fetchYouTubeMetadata(
   };
 }
 
+// =============================================================================
+// YouTube Captions / Transcript
+// =============================================================================
+
+/**
+ * Strip XML/HTML tags from a captions response body.
+ * The timedtext API returns simple XML like:
+ *   <transcript><text start="0.5" dur="2.3">Hello world</text></transcript>
+ */
+function stripXmlTags(xml: string): string {
+  return xml
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Fetch a plain-text transcript for a YouTube video via the public timedtext API.
+ * Returns null if captions are unavailable or the request fails.
+ * Must be called server-side only.
+ */
+export async function fetchYouTubeTranscript(videoId: string): Promise<string | null> {
+  try {
+    const url = `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=srv3`;
+    const res = await fetch(url, { next: { revalidate: 86400 } }); // cache 24h
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (!text || text.trim() === "") return null;
+    const transcript = stripXmlTags(text);
+    return transcript || null;
+  } catch {
+    return null;
+  }
+}
+
+// =============================================================================
+
 /**
  * Build a YouTube embed URL from a video ID.
  * Used for iframe src attributes.

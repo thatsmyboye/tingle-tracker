@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { extractVideoId, fetchYouTubeMetadata } from "@/lib/youtube";
+import { inngest } from "@/inngest/client";
 
 // =============================================================================
 // POST /api/content/ingest
@@ -122,6 +123,13 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+
+  // ---- Trigger background processing ----------------------------------------
+
+  await inngest.send({
+    name: "content/ingested",
+    data: { contentId: content.id, creatorId },
+  });
 
   return NextResponse.json({ content }, { status: 201 });
 }
