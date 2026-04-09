@@ -166,7 +166,8 @@ export const contentProcess = inngest.createFunction(
             {
               content_id: contentId,
               status: "ready",
-              report,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- InsightReport lacks Supabase Json index signature
+              report: report as any,
               generated_at: report.generated_at,
               error_message: null,
             },
