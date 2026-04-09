@@ -1,6 +1,6 @@
 # Tingle Tracker
 
-**Live:** https://tingle-tracker.vercel.app · **Repo:** https://github.com/thatsmyboye/tingle-tracker
+**Live:** [https://tingle-tracker.vercel.app](https://tingletracker.banton-digital.com/) · **Repo:** https://github.com/thatsmyboye/tingle-tracker
 
 ASMR companion platform where listeners log tingle moments in real time and creators receive AI-powered heatmaps and trigger analysis.
 
