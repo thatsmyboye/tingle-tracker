@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:stripe": "tsx --env-file=.env.local scripts/test-stripe.ts"
   },
   "dependencies": {
     "@tingle/ai": "workspace:*",
