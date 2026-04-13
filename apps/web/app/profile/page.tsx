@@ -139,7 +139,7 @@ export default function ProfilePage() {
         </div>
         <div className="flex gap-3 text-xs text-surface-muted">
           <Link href="/dashboard" className="hover:text-tingle-aqua">
-            Dashboard
+            Creator Dashboard
           </Link>
           <span>·</span>
           <Link href="/" className="hover:text-tingle-aqua">
@@ -218,6 +218,21 @@ export default function ProfilePage() {
             <p className="text-[10px] uppercase tracking-wider text-surface-muted">Triggers found</p>
           </div>
         </div>
+      </section>
+
+      {/* Log tingles CTA */}
+      <section className="mb-6 rounded-lg border border-tingle-aqua/30 bg-tingle-aqua/5 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-widest text-tingle-aqua mb-1">Ready to log?</p>
+          <p className="text-sm text-white">Tap the button each time you feel a tingle while a video plays.</p>
+          <p className="text-xs text-surface-muted mt-0.5">Your trigger affinity updates automatically.</p>
+        </div>
+        <Link
+          href="/demo"
+          className="flex-shrink-0 rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors whitespace-nowrap"
+        >
+          Log tingles →
+        </Link>
       </section>
 
       {/* Trigger affinity */}

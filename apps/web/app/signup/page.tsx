@@ -3,7 +3,7 @@
 // =============================================================================
 // /signup — Dedicated sign-up page
 //
-// Redirects authenticated users to /dashboard.
+// Redirects authenticated users to /profile.
 // Uses the same SignUpForm shared with AuthModal.
 // =============================================================================
 
@@ -20,12 +20,12 @@ function SignUpContent() {
   // Redirect already-authenticated real users
   useEffect(() => {
     if (!isLoading && user && !isAnonymous) {
-      router.replace("/dashboard");
+      router.replace("/profile");
     }
   }, [user, isAnonymous, isLoading, router]);
 
   function handleSuccess() {
-    router.replace("/dashboard");
+    router.replace("/profile");
   }
 
   if (isLoading || (user && !isAnonymous)) {
