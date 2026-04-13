@@ -1,29 +1,8 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Redirect } from "expo-router";
 
-export default function HomeScreen() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Tingle Tracker</Text>
-      <Text style={styles.subtitle}>ASMR companion — coming soon</Text>
-    </View>
-  );
+// Root index — redirect to the auth group as a default.
+// AuthContext's navigation guard will immediately redirect to (app)/ if a
+// valid session is already persisted in AsyncStorage.
+export default function Index() {
+  return <Redirect href="/(auth)/login" />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0A0A0F",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#7FFFD4",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#3A3A56",
-  },
-});
