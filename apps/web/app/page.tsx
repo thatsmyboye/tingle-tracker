@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { HomeNav } from "@/components/HomeNav";
 
 export const metadata: Metadata = {
   title: "Tingle Tracker — ASMR analytics for creators",
@@ -23,18 +24,7 @@ export default function HomePage() {
           >
             Pricing
           </Link>
-          <Link
-            href="/login"
-            className="text-xs text-surface-muted hover:text-tingle-aqua transition-colors"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/signup"
-            className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-3 py-1.5 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
-          >
-            Sign up
-          </Link>
+          <HomeNav />
         </div>
       </nav>
 

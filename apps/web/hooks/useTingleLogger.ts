@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerAdapterRef, TingleIntensity } from "@tingle/types";
 import { getSupabaseBrowserClient } from "@tingle/database";
 import {
@@ -67,6 +67,8 @@ export interface UseTingleLoggerOptions {
   /** null when the visitor is not yet authenticated */
   userId: string | null;
   playerRef: React.RefObject<PlayerAdapterRef | null>;
+  /** Called after each tingle is successfully persisted to the DB */
+  onLog?: (timestampMs: number, intensity: TingleIntensity) => void;
 }
 
 export interface UseTingleLoggerReturn {
@@ -83,10 +85,14 @@ export function useTingleLogger({
   contentId,
   userId,
   playerRef,
+  onLog,
 }: UseTingleLoggerOptions): UseTingleLoggerReturn {
   // Effective user ID — starts as the prop, may be set to an anon UUID
   const effectiveUserIdRef = useRef<string | null>(userId);
   const lastEventTime = useRef<number>(0);
+  // Keep onLog in a ref so the log useCallback doesn't need it as a dep
+  const onLogRef = useRef(onLog);
+  useEffect(() => { onLogRef.current = onLog; }, [onLog]);
   const [pendingCount, setPendingCount] = useState(0);
   const [lastLoggedMs, setLastLoggedMs] = useState<number | null>(null);
   const [isDebouncing, setIsDebouncing] = useState(false);
@@ -155,6 +161,7 @@ export function useTingleLogger({
         setPendingCount(queue.length);
       } else {
         setPendingCount(0);
+        onLogRef.current?.(Math.round(timestampMs), intensity);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
