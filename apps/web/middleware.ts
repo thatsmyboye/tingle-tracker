@@ -6,7 +6,7 @@ import { createMiddlewareSupabaseClient } from "@/lib/supabase-ssr";
 // Route protection middleware
 //
 // - /dashboard/**, /profile/**, /admin/** → require authenticated, non-anonymous session
-// - /login, /signup → redirect to /dashboard if already authenticated
+// - /login, /signup → redirect to /profile if already authenticated
 // =============================================================================
 
 const PROTECTED_PREFIXES = ["/dashboard", "/profile", "/admin"];
@@ -35,7 +35,7 @@ export async function middleware(request: NextRequest) {
 
   // Redirect authenticated users away from auth pages
   if (isAuthenticated && (pathname === "/login" || pathname === "/signup")) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/profile", request.url));
   }
 
   return response;

@@ -191,38 +191,50 @@ export default function DashboardPage() {
       <main className="min-h-screen bg-surface font-mono p-6 max-w-2xl mx-auto pt-20">
         <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="font-serif text-3xl text-white mb-2">Creator Dashboard</h1>
+            <h1 className="font-serif text-3xl text-white mb-2">You&apos;re logged in</h1>
             <p className="text-xs text-surface-muted uppercase tracking-widest">
-              No creator profile yet
+              Listener account
             </p>
           </div>
           <div className="flex gap-3 text-xs text-surface-muted">
-            <Link href="/profile" className="hover:text-tingle-aqua">Profile</Link>
-            <span>·</span>
             <Link href="/" className="hover:text-tingle-aqua">← Home</Link>
           </div>
         </div>
-        <div className="rounded-lg border border-surface-border bg-surface-elevated p-8 text-center">
-          <p className="text-xs text-surface-muted mb-2">
-            Your account isn&apos;t set up as a creator yet.
+
+        <div className="rounded-lg border border-tingle-aqua/30 bg-tingle-aqua/5 p-8 text-center mb-4">
+          <p className="text-xs uppercase tracking-widest text-tingle-aqua mb-2">Your listener hub</p>
+          <p className="text-sm text-white mb-1">
+            Your profile is where your tingle history and trigger affinity live.
           </p>
           <p className="text-xs text-surface-muted mb-6">
-            Contact us at{" "}
-            <a
-              href="mailto:hello@tingle-tracker.com"
-              className="text-tingle-aqua underline-offset-2 hover:underline"
-            >
-              hello@tingle-tracker.com
-            </a>{" "}
-            to get creator access.
+            Log tingles in the demo to start building your profile.
           </p>
-          <Link
-            href="/demo"
-            className="rounded-lg border border-tingle-aqua/40 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20"
-          >
-            Explore the demo
-          </Link>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Link
+              href="/profile"
+              className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
+            >
+              Go to your profile →
+            </Link>
+            <Link
+              href="/demo"
+              className="rounded-lg border border-surface-border bg-surface-elevated px-6 py-3 text-sm text-white hover:border-tingle-aqua/30 transition-colors"
+            >
+              Log tingles in demo
+            </Link>
+          </div>
         </div>
+
+        <p className="text-center text-xs text-surface-muted">
+          Want creator analytics?{" "}
+          <a
+            href="mailto:hello@tingle-tracker.com"
+            className="text-tingle-aqua underline-offset-2 hover:underline"
+          >
+            Contact us
+          </a>{" "}
+          to get access.
+        </p>
       </main>
     );
   }

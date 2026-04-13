@@ -16,12 +16,26 @@ export default function HomePage() {
           <span className="text-lg">✦</span>
           <span className="text-sm">Tingle Tracker</span>
         </div>
-        <Link
-          href="/pricing"
-          className="text-xs text-surface-muted hover:text-tingle-aqua transition-colors"
-        >
-          Pricing
-        </Link>
+        <div className="flex items-center gap-5">
+          <Link
+            href="/pricing"
+            className="text-xs text-surface-muted hover:text-tingle-aqua transition-colors"
+          >
+            Pricing
+          </Link>
+          <Link
+            href="/login"
+            className="text-xs text-surface-muted hover:text-tingle-aqua transition-colors"
+          >
+            Log in
+          </Link>
+          <Link
+            href="/signup"
+            className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-3 py-1.5 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
+          >
+            Sign up
+          </Link>
+        </div>
       </nav>
 
       {/* Hero */}
@@ -49,6 +63,12 @@ export default function HomePage() {
             className="rounded-lg border border-surface-border bg-surface-elevated px-6 py-3 text-sm text-white hover:border-tingle-aqua/30 transition-colors"
           >
             For creators
+          </Link>
+          <Link
+            href="/signup"
+            className="rounded-lg border border-tingle-gold/50 bg-tingle-gold/10 px-6 py-3 text-sm text-tingle-gold hover:bg-tingle-gold/20 transition-colors"
+          >
+            Track your tingles →
           </Link>
         </div>
       </section>
