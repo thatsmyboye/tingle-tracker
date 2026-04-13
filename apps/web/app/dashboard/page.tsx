@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [topTriggers, setTopTriggers] = useState<CreatorTopTriggerRow[]>([]);
   const [heatmapTotals, setHeatmapTotals] = useState<Record<string, number>>({});
   const [accessToken, setAccessToken] = useState<string>("");
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddVideo, setShowAddVideo] = useState(false);
@@ -64,12 +65,23 @@ export default function DashboardPage() {
     const { data: { session } } = await supabase.auth.getSession();
     setAccessToken(session?.access_token ?? "");
 
-    // Fetch creator profile
-    const { data: creatorData, error: creatorErr } = await supabase
-      .from("creators")
-      .select("id, display_name, youtube_channel_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    // Fetch creator profile and admin flag in parallel
+    const [{ data: creatorData, error: creatorErr }, { data: profileData }] = await Promise.all([
+      supabase
+        .from("creators")
+        .select("id, display_name, youtube_channel_id")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("user_profiles")
+        .select("is_admin")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+
+    // profileData typed as any because is_admin is added via migration
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setIsAdmin(!!(profileData as any)?.is_admin);
 
     if (creatorErr) {
       setError(creatorErr.message);
@@ -78,6 +90,7 @@ export default function DashboardPage() {
     }
 
     setCreator(creatorData ?? null);
+
 
     if (!creatorData) {
       setLoadingData(false);
@@ -176,14 +189,40 @@ export default function DashboardPage() {
   if (!creator) {
     return (
       <main className="min-h-screen bg-surface font-mono p-6 max-w-2xl mx-auto pt-20">
-        <h1 className="font-serif text-3xl text-white mb-2">Creator Dashboard</h1>
-        <p className="text-xs text-surface-muted mb-8 uppercase tracking-widest">
-          You don&apos;t have a creator profile yet. Add a video to get started.
-        </p>
-        <p className="text-xs text-surface-muted mb-4">
-          To create a creator profile, you&apos;ll need to be set up as a creator first.
-          Contact support or use the API to create your creator record.
-        </p>
+        <div className="flex items-start justify-between mb-8">
+          <div>
+            <h1 className="font-serif text-3xl text-white mb-2">Creator Dashboard</h1>
+            <p className="text-xs text-surface-muted uppercase tracking-widest">
+              No creator profile yet
+            </p>
+          </div>
+          <div className="flex gap-3 text-xs text-surface-muted">
+            <Link href="/profile" className="hover:text-tingle-aqua">Profile</Link>
+            <span>·</span>
+            <Link href="/" className="hover:text-tingle-aqua">← Home</Link>
+          </div>
+        </div>
+        <div className="rounded-lg border border-surface-border bg-surface-elevated p-8 text-center">
+          <p className="text-xs text-surface-muted mb-2">
+            Your account isn&apos;t set up as a creator yet.
+          </p>
+          <p className="text-xs text-surface-muted mb-6">
+            Contact us at{" "}
+            <a
+              href="mailto:hello@tingle-tracker.com"
+              className="text-tingle-aqua underline-offset-2 hover:underline"
+            >
+              hello@tingle-tracker.com
+            </a>{" "}
+            to get creator access.
+          </p>
+          <Link
+            href="/demo"
+            className="rounded-lg border border-tingle-aqua/40 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20"
+          >
+            Explore the demo
+          </Link>
+        </div>
       </main>
     );
   }
@@ -198,12 +237,28 @@ export default function DashboardPage() {
           <h1 className="font-serif text-3xl text-white">{creator.display_name}</h1>
           <p className="text-xs uppercase tracking-widest text-surface-muted mt-1">Creator Dashboard</p>
         </div>
-        <Link
-          href="/"
-          className="text-xs text-surface-muted hover:text-tingle-aqua"
-        >
-          ← Home
-        </Link>
+        <div className="flex items-center gap-4">
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className="text-xs text-surface-muted hover:text-tingle-aqua"
+            >
+              Admin →
+            </Link>
+          )}
+          <Link
+            href="/profile"
+            className="text-xs text-surface-muted hover:text-tingle-aqua"
+          >
+            Profile
+          </Link>
+          <Link
+            href="/"
+            className="text-xs text-surface-muted hover:text-tingle-aqua"
+          >
+            ← Home
+          </Link>
+        </div>
       </div>
 
       {/* Top Triggers panel */}

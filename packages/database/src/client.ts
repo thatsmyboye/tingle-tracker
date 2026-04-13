@@ -1,9 +1,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 import type { Database } from "./database.types";
 
 // =============================================================================
 // Browser client — use in React components and client-side code
-// Uses the anon key; subject to RLS policies
+// Uses the anon key; subject to RLS policies.
+//
+// Uses @supabase/ssr's createBrowserClient so the session is stored in cookies
+// in addition to localStorage. This makes the session visible to Next.js
+// middleware (Edge Runtime cannot access localStorage).
 // =============================================================================
 
 let browserClient: SupabaseClient<Database> | null = null;
@@ -24,7 +29,10 @@ export function getSupabaseBrowserClient(): SupabaseClient<Database> {
     );
   }
 
-  browserClient = createClient<Database>(url, anonKey);
+  // createBrowserClient from @supabase/ssr writes the session to cookies so
+  // Next.js middleware can read it. The returned client is otherwise identical
+  // to a plain createClient instance (same SupabaseClient<Database> type).
+  browserClient = createBrowserClient<Database>(url, anonKey);
   return browserClient;
 }
 
