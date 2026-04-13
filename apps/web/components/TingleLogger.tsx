@@ -26,6 +26,8 @@ interface TingleLoggerProps {
   /** null for unauthenticated visitors */
   userId: string | null;
   playerRef: React.RefObject<PlayerAdapterRef | null>;
+  /** Called after each tingle is successfully persisted to the DB */
+  onLog?: (timestampMs: number, intensity: TingleIntensity) => void;
   className?: string;
 }
 
@@ -43,6 +45,7 @@ export function TingleLogger({
   contentId,
   userId,
   playerRef,
+  onLog,
   className,
 }: TingleLoggerProps) {
   const [intensity, setIntensity] = useState<TingleIntensity>("3");
@@ -52,7 +55,7 @@ export function TingleLogger({
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { log, pendingCount, isDebouncing, showAuthBanner, dismissAuthBanner } =
-    useTingleLogger({ contentId, userId, playerRef });
+    useTingleLogger({ contentId, userId, playerRef, onLog });
 
   const { signInWithGoogle } = useAuth();
 

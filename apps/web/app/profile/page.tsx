@@ -228,7 +228,7 @@ export default function ProfilePage() {
           <p className="text-xs text-surface-muted mt-0.5">Your trigger affinity updates automatically.</p>
         </div>
         <Link
-          href="/demo"
+          href="/listen"
           className="flex-shrink-0 rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors whitespace-nowrap"
         >
           Log tingles →
@@ -246,10 +246,10 @@ export default function ProfilePage() {
               Your profile builds as you log tingles.
             </p>
             <Link
-              href="/demo"
+              href="/listen"
               className="text-xs text-tingle-aqua underline-offset-2 hover:underline"
             >
-              Try the demo →
+              Log tingles →
             </Link>
           </div>
         ) : (

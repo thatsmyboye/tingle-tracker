@@ -207,7 +207,7 @@ export default function DashboardPage() {
             Your profile is where your tingle history and trigger affinity live.
           </p>
           <p className="text-xs text-surface-muted mb-6">
-            Log tingles in the demo to start building your profile.
+            Log tingles while watching ASMR content to start building your profile.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <Link
@@ -217,10 +217,10 @@ export default function DashboardPage() {
               Go to your profile →
             </Link>
             <Link
-              href="/demo"
+              href="/listen"
               className="rounded-lg border border-surface-border bg-surface-elevated px-6 py-3 text-sm text-white hover:border-tingle-aqua/30 transition-colors"
             >
-              Log tingles in demo
+              Log tingles
             </Link>
           </div>
         </div>
