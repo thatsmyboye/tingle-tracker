@@ -36,6 +36,7 @@ interface ContentRow {
   duration_seconds: number | null;
   thumbnail_url: string | null;
   channel_title: string | null;
+  channel_id: string | null;
   creators: { display_name: string } | null;
 }
 
@@ -142,7 +143,7 @@ export default function ListenContentPage({
     supabase
       .from("content")
       .select(
-        "id, youtube_video_id, title, description, duration_seconds, thumbnail_url, channel_title, creators(display_name)"
+        "id, youtube_video_id, title, description, duration_seconds, thumbnail_url, channel_title, channel_id, creators(display_name)"
       )
       .eq("id", contentId)
       .eq("status", "ready")
@@ -430,6 +431,28 @@ export default function ListenContentPage({
           onStateChange={handlePlayerStateChange}
           className="w-full"
         />
+
+        {/* YouTube creator action bar — helps creators receive likes, subs, and comments */}
+        <div className="flex items-center gap-4 text-[11px] text-surface-muted">
+          <a
+            href={`https://www.youtube.com/watch?v=${content.youtube_video_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-tingle-aqua transition-colors"
+          >
+            Watch on YouTube ↗
+          </a>
+          {content.channel_id && (
+            <a
+              href={`https://www.youtube.com/channel/${content.channel_id}?sub_confirmation=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-tingle-aqua transition-colors"
+            >
+              Subscribe to {creatorName} ↗
+            </a>
+          )}
+        </div>
 
         {/* Logger + heatmap */}
         <div className="grid md:grid-cols-2 gap-6">
