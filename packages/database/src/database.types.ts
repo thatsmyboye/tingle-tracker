@@ -288,6 +288,48 @@ export type Database = {
           },
         ];
       };
+      sleep_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          content_id: string;
+          fell_asleep: boolean | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          content_id: string;
+          fell_asleep?: boolean | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          content_id?: string;
+          fell_asleep?: boolean | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sleep_sessions_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sleep_sessions_content_id_fkey";
+            columns: ["content_id"];
+            isOneToOne: false;
+            referencedRelation: "content";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       insights_cache: {
         Row: {
           id: string;
