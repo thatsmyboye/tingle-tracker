@@ -119,6 +119,9 @@ export default function ListenContentPage({
   // Auth modal for the heatmap sign-up CTA
   const [heatmapAuthOpen, setHeatmapAuthOpen] = useState(false);
 
+  // Session-end prompt shown when the video finishes
+  const [videoEnded, setVideoEnded] = useState(false);
+
   // ---- Load content (immediate, no auth dependency) -------------------------
 
   useEffect(() => {
@@ -176,6 +179,24 @@ export default function ListenContentPage({
     },
     []
   );
+
+  // ---- Video end prompt -----------------------------------------------------
+
+  const handlePlayerStateChange = useCallback((state: number) => {
+    // YouTube PlayerState.ENDED = 0
+    if (state === 0) {
+      setVideoEnded(true);
+    }
+  }, []);
+
+  const handleDismissEndModal = useCallback(() => {
+    setVideoEnded(false);
+  }, []);
+
+  const handleEndModalSignUp = useCallback(() => {
+    setVideoEnded(false);
+    setHeatmapAuthOpen(true);
+  }, []);
 
   // ---- Heatmap computation --------------------------------------------------
 
@@ -314,6 +335,7 @@ export default function ListenContentPage({
         <YouTubePlayer
           ref={playerRef}
           videoId={content.youtube_video_id}
+          onStateChange={handlePlayerStateChange}
           className="w-full"
         />
 
@@ -334,7 +356,7 @@ export default function ListenContentPage({
             {sessionEvents.length > 0 && (
               <div className="mt-5 border-t border-surface-border pt-4">
                 <p className="text-xs text-surface-muted mb-2">This session</p>
-                <ul className="space-y-1 max-h-36 overflow-y-auto">
+                <ul className="space-y-1 max-h-36 overflow-y-auto scrollbar-dark">
                   {[...sessionEvents]
                     .reverse()
                     .slice(0, 10)
@@ -435,7 +457,87 @@ export default function ListenContentPage({
         </p>
       </div>
 
-      {/* Auth modal — shared by nav sign-in and heatmap CTA */}
+      {/* Session-end prompt */}
+      {videoEnded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={handleDismissEndModal}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-xl border border-surface-border bg-surface-elevated p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close */}
+            <button
+              onClick={handleDismissEndModal}
+              className="absolute top-4 right-4 text-surface-muted hover:text-white transition-colors text-xs leading-none"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+
+            {/* Icon + title */}
+            <div className="text-center space-y-2">
+              <div className="text-tingle-aqua text-3xl leading-none">✦</div>
+              <h2 className="font-serif text-lg text-white">Session complete</h2>
+            </div>
+
+            {/* Summary */}
+            <div className="text-center space-y-2">
+              <p className="text-sm text-white tabular-nums">
+                {sessionEvents.length === 0
+                  ? "No tingles logged this session"
+                  : `${sessionEvents.length} tingle${sessionEvents.length !== 1 ? "s" : ""} logged`}
+              </p>
+              {isAuthenticated ? (
+                <p className="text-xs text-surface-muted leading-relaxed">
+                  Your data is saved to your profile and is contributing to{" "}
+                  <span className="text-tingle-aqua">{creatorName}</span>
+                  &apos;s analytics dashboard.
+                </p>
+              ) : (
+                <p className="text-xs text-surface-muted leading-relaxed">
+                  {sessionEvents.length > 0
+                    ? "Your tingles are captured for this session. "
+                    : ""}
+                  Create a free account to save them permanently, unlock your
+                  heatmap, and help{" "}
+                  <span className="text-tingle-aqua">{creatorName}</span>{" "}
+                  understand their audience.
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col gap-2">
+              {isAuthenticated ? (
+                <Link
+                  href="/profile"
+                  className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors text-center"
+                  onClick={handleDismissEndModal}
+                >
+                  View profile →
+                </Link>
+              ) : (
+                <button
+                  onClick={handleEndModalSignUp}
+                  className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
+                >
+                  Create free account →
+                </button>
+              )}
+              <button
+                onClick={handleDismissEndModal}
+                className="rounded-lg border border-surface-border px-4 py-2 text-xs text-surface-muted hover:text-white hover:border-surface-muted/50 transition-colors"
+              >
+                Keep listening
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auth modal — shared by nav sign-in, heatmap CTA, and session-end prompt */}
       <AuthModal
         open={heatmapAuthOpen}
         onClose={() => setHeatmapAuthOpen(false)}
