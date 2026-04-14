@@ -35,6 +35,8 @@ export default function ProfilePage() {
   // Saving discovery toggle
   const [savingDiscovery, setSavingDiscovery] = useState(false);
 
+  const [totalTingles, setTotalTingles] = useState(0);
+
   useEffect(() => {
     if (authLoading || !user) return;
 
@@ -53,12 +55,18 @@ export default function ProfilePage() {
         .eq("user_id", user.id)
         .order("tingle_count", { ascending: false })
         .limit(10),
+      supabase
+        .from("tingle_events")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id),
     ])
-      .then(([profileRes, affinityRes]) => {
+      .then(([profileRes, affinityRes, tingleCountRes]) => {
         if (profileRes.error) { setError(profileRes.error.message); return; }
         if (affinityRes.error) { setError(affinityRes.error.message); return; }
+        if (tingleCountRes.error) { setError(tingleCountRes.error.message); return; }
         setProfile(profileRes.data as UserProfile | null);
         setAffinity((affinityRes.data ?? []) as UserTriggerAffinityRow[]);
+        setTotalTingles(tingleCountRes.count ?? 0);
       })
       .finally(() => setLoadingData(false));
   }, [user, authLoading]);
@@ -68,17 +76,17 @@ export default function ProfilePage() {
     if (!user || !nameInput.trim()) return;
     setSavingName(true);
     const supabase = getSupabaseBrowserClient();
-    const { error: upsertError } = await supabase
+    const { data: upserted, error: upsertError } = await supabase
       .from("user_profiles")
       .upsert(
         { user_id: user.id, display_name: nameInput.trim() },
         { onConflict: "user_id" },
-      );
+      )
+      .select()
+      .single();
     setSavingName(false);
     if (upsertError) { setError(upsertError.message); return; }
-    setProfile((prev) =>
-      prev ? { ...prev, display_name: nameInput.trim() } : prev,
-    );
+    setProfile(upserted as UserProfile);
     setEditingName(false);
   }
 
@@ -125,7 +133,6 @@ export default function ProfilePage() {
 
   const displayName =
     profile?.display_name ?? user?.email?.split("@")[0] ?? "Listener";
-  const totalTingles = affinity.reduce((sum, r) => sum + (r.tingle_count ?? 0), 0);
 
   return (
     <main className="min-h-screen bg-surface font-mono p-6 max-w-2xl mx-auto">
