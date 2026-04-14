@@ -101,8 +101,10 @@ export type Database = {
       content: {
         Row: {
           id: string;
-          creator_id: string;
+          creator_id: string | null;
           youtube_video_id: string;
+          youtube_channel_id: string | null;
+          channel_title: string | null;
           title: string;
           description: string | null;
           duration_seconds: number | null;
@@ -115,8 +117,10 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          creator_id: string;
+          creator_id?: string | null;
           youtube_video_id: string;
+          youtube_channel_id?: string | null;
+          channel_title?: string | null;
           title: string;
           description?: string | null;
           duration_seconds?: number | null;
@@ -129,8 +133,10 @@ export type Database = {
         };
         Update: {
           id?: string;
-          creator_id?: string;
+          creator_id?: string | null;
           youtube_video_id?: string;
+          youtube_channel_id?: string | null;
+          channel_title?: string | null;
           title?: string;
           description?: string | null;
           duration_seconds?: number | null;
@@ -357,7 +363,22 @@ export type Database = {
         Relationships: [];
       };
     };
-    Functions: Record<string, never>;
+    Functions: {
+      get_trending_content: {
+        Args: { p_limit?: number };
+        Returns: Array<{
+          id: string;
+          youtube_video_id: string;
+          youtube_channel_id: string | null;
+          channel_title: string | null;
+          title: string;
+          duration_seconds: number | null;
+          thumbnail_url: string | null;
+          creator_display_name: string | null;
+          tingle_count: number;
+        }>;
+      };
+    };
     Enums: {
       trigger_category: "visual" | "aural" | "tactile_adjacent";
       tingle_intensity: "1" | "2" | "3" | "4" | "5";

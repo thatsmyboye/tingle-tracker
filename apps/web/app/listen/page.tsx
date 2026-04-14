@@ -1,26 +1,35 @@
 "use client";
 
 // =============================================================================
-// /listen — Production content browser for listeners
+// /listen — Listener entry point
 //
-// Lists all ready content with creator names. Auth-guarded by middleware.
-// Authenticated listeners pick a video to watch and log tingles against.
+// Public page (no auth required). Two sections:
+//   1. YouTube URL input — resolves any video URL to a content row and
+//      navigates to /listen/[contentId] so the listener can start logging.
+//   2. Trending grid — videos ranked by tingle activity in the past 7 days,
+//      fetched via the get_trending_content() RPC.
 // =============================================================================
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@tingle/database";
-import { useAuth } from "@/hooks/useAuth";
 
-interface ContentWithCreator {
+// ---- Types ------------------------------------------------------------------
+
+interface TrendingItem {
   id: string;
   youtube_video_id: string;
+  youtube_channel_id: string | null;
+  channel_title: string | null;
   title: string;
-  description: string | null;
   duration_seconds: number | null;
   thumbnail_url: string | null;
-  creators: { display_name: string } | null;
+  creator_display_name: string | null;
+  tingle_count: number;
 }
+
+// ---- Helpers ----------------------------------------------------------------
 
 function formatDuration(seconds: number | null): string {
   if (!seconds) return "";
@@ -29,36 +38,69 @@ function formatDuration(seconds: number | null): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function formatTingleCount(n: number): string {
+  if (n === 0) return "";
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+// =============================================================================
+// Page
+// =============================================================================
+
 export default function ListenPage() {
-  const { user, isLoading: authLoading } = useAuth();
-  const [content, setContent] = useState<ContentWithCreator[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  const [url, setUrl] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [inputError, setInputError] = useState<string | null>(null);
+  const [trending, setTrending] = useState<TrendingItem[]>([]);
+  const [trendingLoading, setTrendingLoading] = useState(true);
+
+  // Fetch trending on mount
   useEffect(() => {
-    if (authLoading) return;
-
     const supabase = getSupabaseBrowserClient();
-    setLoadingData(true);
-
     supabase
-      .from("content")
-      .select(
-        "id, youtube_video_id, title, description, duration_seconds, thumbnail_url, creators(display_name)"
-      )
-      .eq("status", "ready")
-      .order("created_at", { ascending: false })
-      .then(({ data, error: err }) => {
-        if (err) {
-          setError(err.message);
-        } else {
-          setContent((data ?? []) as ContentWithCreator[]);
-        }
-        setLoadingData(false);
+      .rpc("get_trending_content", { p_limit: 12 })
+      .then(({ data }) => {
+        if (data) setTrending(data as TrendingItem[]);
+        setTrendingLoading(false);
       });
-  }, [authLoading, user]);
+  }, []);
 
-  const isLoading = authLoading || loadingData;
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setInputError("Paste a YouTube URL to get started.");
+      inputRef.current?.focus();
+      return;
+    }
+
+    setInputError(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch("/api/content/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ youtubeUrl: trimmed }),
+      });
+      const data = (await res.json()) as { contentId?: string; error?: string };
+
+      if (!res.ok || !data.contentId) {
+        setInputError(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      router.push(`/listen/${data.contentId}`);
+    } catch {
+      setInputError("Network error — please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-surface font-mono">
@@ -81,55 +123,88 @@ export default function ListenPage() {
         </div>
       </nav>
 
-      {/* Header */}
-      <section className="max-w-4xl mx-auto px-6 pt-10 pb-6">
+      {/* Hero + URL input */}
+      <section className="max-w-4xl mx-auto px-6 pt-12 pb-10">
         <p className="text-xs uppercase tracking-widest text-surface-muted mb-3">
           Listener Mode
         </p>
-        <h1 className="font-serif text-4xl text-white mb-2">
-          Browse ASMR Content
+        <h1 className="font-serif text-4xl text-white mb-3">
+          Paste any ASMR video
         </h1>
-        <p className="text-sm text-surface-muted leading-relaxed">
-          Pick a video and tap ✦ whenever you feel a tingle. Your responses feed
-          the creator&apos;s analytics dashboard in real time.
+        <p className="text-sm text-surface-muted leading-relaxed mb-8">
+          Play any YouTube video and tap ✦ whenever you feel a tingle. Your
+          responses are collected for the creator&apos;s analytics automatically
+          — even before they&apos;ve signed up.
+        </p>
+
+        {/* URL input */}
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
+          <input
+            ref={inputRef}
+            type="text"
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setInputError(null);
+            }}
+            placeholder="https://youtube.com/watch?v=..."
+            className="flex-1 rounded-lg border border-surface-border bg-surface-elevated px-4 py-3 text-sm text-white placeholder:text-surface-muted/50 focus:border-tingle-aqua/50 focus:outline-none focus:ring-1 focus:ring-tingle-aqua/30 transition-colors"
+            disabled={isSubmitting}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          <button
+            type="submit"
+            disabled={isSubmitting || !url.trim()}
+            className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 border border-tingle-aqua/60 border-t-transparent rounded-full animate-spin" />
+                Loading…
+              </span>
+            ) : (
+              "Start listening →"
+            )}
+          </button>
+        </form>
+
+        {inputError && (
+          <p className="mt-2 text-xs text-red-400">{inputError}</p>
+        )}
+
+        <p className="mt-3 text-[10px] text-surface-muted/50">
+          Supports youtube.com/watch, youtu.be, Shorts, and embed URLs
         </p>
       </section>
 
-      {/* Content area */}
+      {/* Trending */}
       <section className="max-w-4xl mx-auto px-6 pb-16">
-        {isLoading ? (
-          <div className="space-y-3">
+        <p className="text-xs uppercase tracking-widest text-surface-muted mb-5">
+          Trending this week
+        </p>
+
+        {trendingLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1, 2, 3].map((n) => (
               <div
                 key={n}
-                className="h-24 rounded-lg border border-surface-border bg-surface-elevated animate-pulse"
+                className="h-52 rounded-lg border border-surface-border bg-surface-elevated animate-pulse"
               />
             ))}
           </div>
-        ) : error ? (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-400">
-            {error}
-          </div>
-        ) : content.length === 0 ? (
-          <div className="rounded-lg border border-surface-border bg-surface-elevated p-12 text-center">
-            <p className="text-xs uppercase tracking-widest text-surface-muted mb-2">
-              No content yet
+        ) : trending.length === 0 ? (
+          <div className="rounded-lg border border-surface-border bg-surface-elevated p-10 text-center">
+            <p className="text-xs text-surface-muted leading-relaxed">
+              No activity yet — paste a video above to be the first to log
+              tingles.
             </p>
-            <p className="text-sm text-surface-muted leading-relaxed mb-6">
-              Creators haven&apos;t added any videos yet. Check back soon, or
-              try the interactive demo to see what logging feels like.
-            </p>
-            <Link
-              href="/demo"
-              className="inline-block rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
-            >
-              Try the demo →
-            </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {content.map((item) => (
-              <ContentCard key={item.id} item={item} />
+            {trending.map((item) => (
+              <TrendingCard key={item.id} item={item} />
             ))}
           </div>
         )}
@@ -139,12 +214,15 @@ export default function ListenPage() {
 }
 
 // =============================================================================
-// ContentCard
+// TrendingCard
 // =============================================================================
 
-function ContentCard({ item }: { item: ContentWithCreator }) {
-  const creatorName = item.creators?.display_name ?? "Unknown creator";
+function TrendingCard({ item }: { item: TrendingItem }) {
+  // Prefer claimed creator display name; fall back to raw channel title
+  const displayName =
+    item.creator_display_name ?? item.channel_title ?? "Unknown";
   const duration = formatDuration(item.duration_seconds);
+  const tingleLabel = formatTingleCount(item.tingle_count);
 
   return (
     <Link
@@ -162,12 +240,19 @@ function ContentCard({ item }: { item: ContentWithCreator }) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <span className="text-surface-muted/40 text-4xl select-none">▶</span>
+            <span className="text-surface-muted/40 text-4xl select-none">
+              ▶
+            </span>
           </div>
         )}
         {duration && (
           <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
             {duration}
+          </span>
+        )}
+        {tingleLabel && (
+          <span className="absolute top-1.5 right-1.5 rounded bg-tingle-aqua/20 border border-tingle-aqua/30 px-1.5 py-0.5 font-mono text-[10px] text-tingle-aqua">
+            ✦ {tingleLabel}
           </span>
         )}
       </div>
@@ -177,7 +262,7 @@ function ContentCard({ item }: { item: ContentWithCreator }) {
         <p className="text-sm text-white leading-snug line-clamp-2 mb-1">
           {item.title}
         </p>
-        <p className="text-xs text-surface-muted">{creatorName}</p>
+        <p className="text-xs text-surface-muted">{displayName}</p>
       </div>
 
       {/* CTA */}

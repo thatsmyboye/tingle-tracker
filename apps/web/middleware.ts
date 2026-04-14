@@ -9,7 +9,7 @@ import { createMiddlewareSupabaseClient } from "@/lib/supabase-ssr";
 // - /login, /signup → redirect to /profile if already authenticated
 // =============================================================================
 
-const PROTECTED_PREFIXES = ["/dashboard", "/profile", "/admin", "/listen"];
+const PROTECTED_PREFIXES = ["/dashboard", "/profile", "/admin"];
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next({ request });

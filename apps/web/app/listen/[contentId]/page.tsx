@@ -1,12 +1,17 @@
 "use client";
 
 // =============================================================================
-// /listen/[contentId] — Production tingle logger
+// /listen/[contentId] — Tingle logger
 //
-// Embeds the YouTube video via YouTubePlayer and wires TingleLogger so every
-// tap is persisted to tingle_events in Supabase. Displays a live heatmap that
-// merges this session's taps with the user's historical taps on this video.
-// Auth-guarded by middleware (/listen prefix).
+// Public page — no auth required to watch or log tingles.
+//
+// Feature gating by auth state:
+//   Unauthenticated / anonymous → tap ✦, see blurred heatmap teaser + sign-up CTA
+//   Authenticated (non-anonymous) → tap ✦, see full personal heatmap
+//
+// Content loads immediately without waiting for auth resolution so there is no
+// unnecessary delay for anonymous visitors. Historical tingle events are
+// fetched only once the auth state settles to a real (non-anonymous) user.
 // =============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +21,7 @@ import { getSupabaseBrowserClient } from "@tingle/database";
 import { useAuth } from "@/hooks/useAuth";
 import { TingleLogger } from "@/components/TingleLogger";
 import { HeatmapChart } from "@/components/HeatmapChart";
+import { AuthModal } from "@/components/AuthModal";
 import type { ContentTingleHeatmapRow, TingleIntensity } from "@tingle/types";
 
 // =============================================================================
@@ -29,6 +35,7 @@ interface ContentRow {
   description: string | null;
   duration_seconds: number | null;
   thumbnail_url: string | null;
+  channel_title: string | null;
   creators: { display_name: string } | null;
 }
 
@@ -38,10 +45,23 @@ interface SessionEvent {
 }
 
 // =============================================================================
-// Helpers
+// Heatmap helpers
 // =============================================================================
 
 const BUCKET_SIZE_MS = 30_000; // 30-second buckets
+
+// Placeholder buckets shown blurred to unauthenticated users.
+// Provides a sense of what the heatmap looks like before sign-up.
+const HEATMAP_PLACEHOLDER: ContentTingleHeatmapRow[] = [
+  { content_id: "", bucket_start_ms: 0,      tingle_count: 1, avg_intensity: 2 },
+  { content_id: "", bucket_start_ms: 30000,  tingle_count: 4, avg_intensity: 3 },
+  { content_id: "", bucket_start_ms: 60000,  tingle_count: 6, avg_intensity: 4 },
+  { content_id: "", bucket_start_ms: 90000,  tingle_count: 2, avg_intensity: 3 },
+  { content_id: "", bucket_start_ms: 120000, tingle_count: 8, avg_intensity: 5 },
+  { content_id: "", bucket_start_ms: 150000, tingle_count: 3, avg_intensity: 3 },
+  { content_id: "", bucket_start_ms: 180000, tingle_count: 5, avg_intensity: 4 },
+  { content_id: "", bucket_start_ms: 210000, tingle_count: 2, avg_intensity: 2 },
+];
 
 function buildHeatmapBuckets(
   events: Array<{ timestamp_ms: number; intensity: TingleIntensity }>,
@@ -80,7 +100,10 @@ export default function ListenContentPage({
   params: { contentId: string };
 }) {
   const { contentId } = params;
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isAnonymous, isLoading: authLoading } = useAuth();
+
+  // Authenticated = has a real (non-anonymous) account
+  const isAuthenticated = !!user && !isAnonymous;
 
   const playerRef = useRef<YouTubePlayerRef | null>(null);
 
@@ -88,74 +111,68 @@ export default function ListenContentPage({
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Session events: taps logged during this page visit
   const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([]);
-
-  // Historical buckets: aggregated from the user's prior tingle_events for this content
   const [historicalBuckets, setHistoricalBuckets] = useState<
     ContentTingleHeatmapRow[]
   >([]);
 
-  // ---- Data load ------------------------------------------------------------
+  // Auth modal for the heatmap sign-up CTA
+  const [heatmapAuthOpen, setHeatmapAuthOpen] = useState(false);
+
+  // ---- Load content (immediate, no auth dependency) -------------------------
 
   useEffect(() => {
-    if (authLoading) return;
-
     const supabase = getSupabaseBrowserClient();
     setLoadingData(true);
 
-    const fetchContent = supabase
+    supabase
       .from("content")
       .select(
-        "id, youtube_video_id, title, description, duration_seconds, thumbnail_url, creators(display_name)"
+        "id, youtube_video_id, title, description, duration_seconds, thumbnail_url, channel_title, creators(display_name)"
       )
       .eq("id", contentId)
       .eq("status", "ready")
-      .single();
-
-    const fetchHistory =
-      user && !authLoading
-        ? supabase
-            .from("tingle_events")
-            .select("timestamp_ms, intensity")
-            .eq("content_id", contentId)
-            .eq("user_id", user.id)
-        : Promise.resolve({ data: [], error: null });
-
-    Promise.all([fetchContent, fetchHistory]).then(
-      ([contentRes, historyRes]) => {
-        if (contentRes.error || !contentRes.data) {
-          setError(
-            contentRes.error?.message ??
-              "Content not found or not yet available."
-          );
-          setLoadingData(false);
-          return;
+      .single()
+      .then(({ data, error: err }) => {
+        if (err || !data) {
+          setError(err?.message ?? "Content not found or not yet available.");
+        } else {
+          setContent(data as ContentRow);
         }
+        setLoadingData(false);
+      });
+  }, [contentId]);
 
-        setContent(contentRes.data as ContentRow);
+  // ---- Load tingle history (only for authenticated users) -------------------
 
-        if (!historyRes.error && historyRes.data && historyRes.data.length > 0) {
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || !user) return;
+
+    const supabase = getSupabaseBrowserClient();
+    supabase
+      .from("tingle_events")
+      .select("timestamp_ms, intensity")
+      .eq("content_id", contentId)
+      .eq("user_id", user.id)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
           const buckets = buildHeatmapBuckets(
-            historyRes.data as Array<{
-              timestamp_ms: number;
-              intensity: TingleIntensity;
-            }>,
+            data as Array<{ timestamp_ms: number; intensity: TingleIntensity }>,
             contentId
           );
           setHistoricalBuckets(buckets);
         }
-
-        setLoadingData(false);
-      }
-    );
-  }, [authLoading, user, contentId]);
+      });
+  }, [authLoading, isAuthenticated, user, contentId]);
 
   // ---- onLog callback -------------------------------------------------------
 
   const handleLog = useCallback(
     (timestampMs: number, intensity: TingleIntensity) => {
-      setSessionEvents((prev) => [...prev, { timestamp_ms: timestampMs, intensity }]);
+      setSessionEvents((prev) => [
+        ...prev,
+        { timestamp_ms: timestampMs, intensity },
+      ]);
     },
     []
   );
@@ -167,7 +184,7 @@ export default function ListenContentPage({
     [sessionEvents, contentId]
   );
 
-  // Merge historical + session buckets; session taps update the existing buckets
+  // Merge historical (prior sessions) + current session buckets
   const mergedBuckets = useMemo((): ContentTingleHeatmapRow[] => {
     const bucketMap = new Map<
       number,
@@ -209,7 +226,7 @@ export default function ListenContentPage({
 
   // ---- Loading / error states -----------------------------------------------
 
-  if (authLoading || loadingData) {
+  if (loadingData) {
     return (
       <main className="min-h-screen bg-surface font-mono p-6 max-w-4xl mx-auto">
         <div className="space-y-3 mt-8">
@@ -234,13 +251,16 @@ export default function ListenContentPage({
           href="/listen"
           className="text-xs text-tingle-aqua hover:underline underline-offset-2"
         >
-          ← Browse content
+          ← Back to listen
         </Link>
       </main>
     );
   }
 
-  const creatorName = content.creators?.display_name ?? "Unknown creator";
+  // Prefer claimed creator display name; fall back to raw channel title
+  const creatorName =
+    content.creators?.display_name ?? content.channel_title ?? "Unknown";
+
   const hasPriorHistory = historicalBuckets.length > 0;
   const priorTingleCount = historicalBuckets.reduce(
     (sum, b) => sum + b.tingle_count,
@@ -260,9 +280,21 @@ export default function ListenContentPage({
           ← Browse
         </Link>
         <div className="flex items-center gap-4 text-xs text-surface-muted">
-          <Link href="/profile" className="hover:text-tingle-aqua transition-colors">
-            Profile
-          </Link>
+          {isAuthenticated ? (
+            <Link
+              href="/profile"
+              className="hover:text-tingle-aqua transition-colors"
+            >
+              Profile
+            </Link>
+          ) : (
+            <button
+              onClick={() => setHeatmapAuthOpen(true)}
+              className="hover:text-tingle-aqua transition-colors"
+            >
+              Sign in
+            </button>
+          )}
           <Link href="/" className="hover:text-tingle-aqua transition-colors">
             Home
           </Link>
@@ -287,7 +319,7 @@ export default function ListenContentPage({
 
         {/* Logger + heatmap */}
         <div className="grid md:grid-cols-2 gap-6">
-          {/* Tingle Logger */}
+          {/* Tingle Logger — available to everyone */}
           <section className="rounded-lg border border-surface-border bg-surface-elevated p-5">
             <p className="text-xs uppercase tracking-widest text-surface-muted mb-5">
               Log a Tingle
@@ -333,25 +365,65 @@ export default function ListenContentPage({
             )}
           </section>
 
-          {/* Heatmap */}
+          {/* Heatmap — gated to authenticated users */}
           <section className="rounded-lg border border-surface-border bg-surface-elevated p-5">
             <p className="text-xs uppercase tracking-widest text-surface-muted mb-4">
               Your Tingle Heatmap
             </p>
-            <HeatmapChart
-              buckets={mergedBuckets}
-              durationSeconds={content.duration_seconds}
-            />
-            {mergedBuckets.length === 0 && (
-              <p className="font-mono text-[10px] text-surface-muted/60 mt-2">
-                Play the video and tap ✦ to start building your heatmap.
-              </p>
-            )}
-            {hasPriorHistory && (
-              <p className="text-[10px] text-surface-muted/50 mt-3">
-                Includes {priorTingleCount} tingle
-                {priorTingleCount !== 1 ? "s" : ""} from previous sessions.
-              </p>
+
+            {isAuthenticated ? (
+              <>
+                <HeatmapChart
+                  buckets={mergedBuckets}
+                  durationSeconds={content.duration_seconds}
+                />
+                {mergedBuckets.length === 0 && (
+                  <p className="font-mono text-[10px] text-surface-muted/60 mt-2">
+                    Play the video and tap ✦ to start building your heatmap.
+                  </p>
+                )}
+                {hasPriorHistory && (
+                  <p className="text-[10px] text-surface-muted/50 mt-3">
+                    Includes {priorTingleCount} tingle
+                    {priorTingleCount !== 1 ? "s" : ""} from previous sessions.
+                  </p>
+                )}
+              </>
+            ) : (
+              // Blurred teaser for anonymous / unauthenticated visitors
+              <div className="relative">
+                <div
+                  className="blur-sm pointer-events-none select-none"
+                  aria-hidden="true"
+                >
+                  <HeatmapChart
+                    buckets={
+                      sessionBuckets.length > 0
+                        ? sessionBuckets
+                        : HEATMAP_PLACEHOLDER
+                    }
+                    durationSeconds={content.duration_seconds}
+                  />
+                </div>
+
+                {/* Overlay */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center rounded bg-surface/70">
+                  <p className="text-sm text-white mb-1 text-center leading-snug px-4">
+                    Sign in to see your heatmap
+                  </p>
+                  <p className="text-xs text-surface-muted mb-4 text-center px-4">
+                    Your tingles are being saved.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setHeatmapAuthOpen(true)}
+                      className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
+                    >
+                      Create free account →
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
           </section>
         </div>
@@ -362,6 +434,13 @@ export default function ListenContentPage({
           analytics dashboard.
         </p>
       </div>
+
+      {/* Auth modal — shared by nav sign-in and heatmap CTA */}
+      <AuthModal
+        open={heatmapAuthOpen}
+        onClose={() => setHeatmapAuthOpen(false)}
+        defaultTab="signup"
+      />
     </main>
   );
 }
