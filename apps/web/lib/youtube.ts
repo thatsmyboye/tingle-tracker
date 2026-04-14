@@ -73,9 +73,31 @@ export async function fetchYouTubeMetadata(
   url.searchParams.set("part", "snippet,contentDetails,status");
   url.searchParams.set("key", apiKey);
 
-  const res = await fetch(url.toString(), { next: { revalidate: 3600 } });
+  // API keys with HTTP-referrer restrictions block server-side requests that
+  // carry no Referer header. Send the production origin so restricted keys work.
+  const appOrigin =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "http://localhost:3000");
+
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 3600 },
+    headers: { Referer: appOrigin },
+  });
+
   if (!res.ok) {
-    throw new Error(`YouTube API error: ${res.status} ${res.statusText}`);
+    // Surface the YouTube-specific error reason for easier debugging.
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- YouTube error shape is untyped
+      const errBody = (await res.clone().json()) as any;
+      const ytErr = errBody?.error?.errors?.[0];
+      if (ytErr?.reason) detail += ` — ${ytErr.reason}: ${ytErr.message}`;
+    } catch {
+      // ignore JSON parse failure, keep original detail string
+    }
+    throw new Error(`YouTube API error: ${detail}`);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- YouTube API response is untyped
