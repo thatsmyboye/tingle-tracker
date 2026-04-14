@@ -14,3 +14,26 @@ body {
   color: var(--foreground);
   font-family: 'DM Mono', 'Fira Code', monospace;
 }
+
+/* Dark-themed scrollbar for use inside dark panels */
+.scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: #1E1E2E transparent;
+}
+
+.scrollbar-dark::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background-color: #1E1E2E;
+  border-radius: 9999px;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background-color: #2A2A3F;
+}

@@ -44,6 +44,12 @@ interface SessionEvent {
   intensity: TingleIntensity;
 }
 
+interface SleepPromptData {
+  sessionId: string;
+  contentTitle: string;
+  creatorName: string;
+}
+
 // =============================================================================
 // Heatmap helpers
 // =============================================================================
@@ -119,6 +125,14 @@ export default function ListenContentPage({
   // Auth modal for the heatmap sign-up CTA
   const [heatmapAuthOpen, setHeatmapAuthOpen] = useState(false);
 
+  // Session-end prompt shown when the video finishes
+  const [videoEnded, setVideoEnded] = useState(false);
+
+  // Sleep mode
+  const [sleepMode, setSleepMode] = useState(false);
+  const [sleepSessionId, setSleepSessionId] = useState<string | null>(null);
+  const [pendingSleepPrompt, setPendingSleepPrompt] = useState<SleepPromptData | null>(null);
+
   // ---- Load content (immediate, no auth dependency) -------------------------
 
   useEffect(() => {
@@ -176,6 +190,105 @@ export default function ListenContentPage({
     },
     []
   );
+
+  // ---- Video end prompt -----------------------------------------------------
+
+  const handlePlayerStateChange = useCallback((state: number) => {
+    // YouTube PlayerState.ENDED = 0
+    if (state === 0) {
+      if (sleepMode) {
+        // Video ended while sleep mode is on — let it end silently.
+        // The pending prompt is already written to localStorage.
+        return;
+      }
+      setVideoEnded(true);
+    }
+  }, [sleepMode]);
+
+  const handleDismissEndModal = useCallback(() => {
+    setVideoEnded(false);
+  }, []);
+
+  const handleEndModalSignUp = useCallback(() => {
+    setVideoEnded(false);
+    setHeatmapAuthOpen(true);
+  }, []);
+
+  // ---- Sleep mode -----------------------------------------------------------
+
+  // On auth settle, surface any pending "did you fall asleep?" prompt
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+    try {
+      const raw = localStorage.getItem("tingle_sleep_pending");
+      if (!raw) return;
+      const data = JSON.parse(raw) as SleepPromptData;
+      if (data?.sessionId) setPendingSleepPrompt(data);
+    } catch {
+      localStorage.removeItem("tingle_sleep_pending");
+    }
+  }, [authLoading, isAuthenticated]);
+
+  const handleSleepModeToggle = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
+    if (sleepMode) {
+      // Cancel: remove the uncommitted sleep record and clear pending prompt
+      if (sleepSessionId) {
+        await supabase.from("sleep_sessions").delete().eq("id", sleepSessionId);
+        setSleepSessionId(null);
+      }
+      localStorage.removeItem("tingle_sleep_pending");
+      setSleepMode(false);
+    } else {
+      // Activate: ensure a user session exists (anonymous is fine)
+      let uid = user?.id;
+      if (!uid) {
+        const { data: anonData } = await supabase.auth.signInAnonymously();
+        uid = anonData.user?.id ?? undefined;
+      }
+      if (uid && content) {
+        const { data, error } = await supabase
+          .from("sleep_sessions")
+          .insert({ user_id: uid, content_id: contentId })
+          .select("id")
+          .single();
+        if (data && !error) {
+          setSleepSessionId(data.id);
+          const info: SleepPromptData = {
+            sessionId: data.id,
+            contentTitle: content.title,
+            creatorName:
+              content.creators?.display_name ??
+              content.channel_title ??
+              "Unknown",
+          };
+          try {
+            localStorage.setItem("tingle_sleep_pending", JSON.stringify(info));
+          } catch {}
+        }
+      }
+      setSleepMode(true);
+    }
+  }, [sleepMode, sleepSessionId, user, contentId, content]);
+
+  const handleSleepAnswer = useCallback(
+    async (fellAsleep: boolean) => {
+      if (!pendingSleepPrompt) return;
+      const supabase = getSupabaseBrowserClient();
+      await supabase
+        .from("sleep_sessions")
+        .update({ fell_asleep: fellAsleep, updated_at: new Date().toISOString() })
+        .eq("id", pendingSleepPrompt.sessionId);
+      setPendingSleepPrompt(null);
+      localStorage.removeItem("tingle_sleep_pending");
+    },
+    [pendingSleepPrompt]
+  );
+
+  const handleDismissSleepPrompt = useCallback(() => {
+    setPendingSleepPrompt(null);
+    localStorage.removeItem("tingle_sleep_pending");
+  }, []);
 
   // ---- Heatmap computation --------------------------------------------------
 
@@ -314,6 +427,7 @@ export default function ListenContentPage({
         <YouTubePlayer
           ref={playerRef}
           videoId={content.youtube_video_id}
+          onStateChange={handlePlayerStateChange}
           className="w-full"
         />
 
@@ -321,47 +435,95 @@ export default function ListenContentPage({
         <div className="grid md:grid-cols-2 gap-6">
           {/* Tingle Logger — available to everyone */}
           <section className="rounded-lg border border-surface-border bg-surface-elevated p-5">
-            <p className="text-xs uppercase tracking-widest text-surface-muted mb-5">
-              Log a Tingle
-            </p>
-            <TingleLogger
-              contentId={content.id}
-              userId={user?.id ?? null}
-              playerRef={playerRef}
-              onLog={handleLog}
-              className="w-full"
-            />
-            {sessionEvents.length > 0 && (
-              <div className="mt-5 border-t border-surface-border pt-4">
-                <p className="text-xs text-surface-muted mb-2">This session</p>
-                <ul className="space-y-1 max-h-36 overflow-y-auto">
-                  {[...sessionEvents]
-                    .reverse()
-                    .slice(0, 10)
-                    .map((ev, i) => {
-                      const s = Math.floor(ev.timestamp_ms / 1000);
-                      const mm = Math.floor(s / 60);
-                      const ss = s % 60;
-                      return (
-                        <li
-                          key={i}
-                          className="flex items-center gap-3 text-xs font-mono"
-                        >
-                          <span className="text-tingle-aqua tabular-nums w-10">
-                            {mm}:{String(ss).padStart(2, "0")}
-                          </span>
-                          <span className="text-surface-muted">
-                            intensity {ev.intensity}
-                          </span>
-                        </li>
-                      );
-                    })}
-                </ul>
-                <p className="text-[10px] text-surface-muted/60 mt-2">
-                  {sessionEvents.length} tingle
-                  {sessionEvents.length !== 1 ? "s" : ""} this session
+            {/* Header row with sleep mode toggle */}
+            <div className="flex items-center justify-between mb-5">
+              <p className="text-xs uppercase tracking-widest text-surface-muted">
+                Log a Tingle
+              </p>
+              <button
+                onClick={handleSleepModeToggle}
+                className={[
+                  "flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border transition-colors",
+                  sleepMode
+                    ? "border-tingle-purple/50 bg-tingle-purple/10 text-tingle-purple"
+                    : "border-surface-border text-surface-muted hover:border-surface-muted/50 hover:text-white",
+                ].join(" ")}
+                title={sleepMode ? "Disable sleep mode" : "Enable sleep mode"}
+              >
+                {/* Moon icon */}
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+                {sleepMode ? "Sleep on" : "Sleep"}
+              </button>
+            </div>
+
+            {sleepMode ? (
+              /* Sleep mode active — hide logger, show friendly message */
+              <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+                <svg
+                  className="text-tingle-purple/60"
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+                <p className="text-sm text-white">Sleep mode active</p>
+                <p className="text-xs text-surface-muted leading-relaxed max-w-[180px]">
+                  Have a restful sleep! Your session is being saved.
                 </p>
               </div>
+            ) : (
+              <>
+                <TingleLogger
+                  contentId={content.id}
+                  userId={user?.id ?? null}
+                  playerRef={playerRef}
+                  onLog={handleLog}
+                  className="w-full"
+                />
+                {sessionEvents.length > 0 && (
+                  <div className="mt-5 border-t border-surface-border pt-4">
+                    <p className="text-xs text-surface-muted mb-2">This session</p>
+                    <ul className="space-y-1 max-h-36 overflow-y-auto scrollbar-dark">
+                      {[...sessionEvents]
+                        .reverse()
+                        .slice(0, 10)
+                        .map((ev, i) => {
+                          const s = Math.floor(ev.timestamp_ms / 1000);
+                          const mm = Math.floor(s / 60);
+                          const ss = s % 60;
+                          return (
+                            <li
+                              key={i}
+                              className="flex items-center gap-3 text-xs font-mono"
+                            >
+                              <span className="text-tingle-aqua tabular-nums w-10">
+                                {mm}:{String(ss).padStart(2, "0")}
+                              </span>
+                              <span className="text-surface-muted">
+                                intensity {ev.intensity}
+                              </span>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                    <p className="text-[10px] text-surface-muted/60 mt-2">
+                      {sessionEvents.length} tingle
+                      {sessionEvents.length !== 1 ? "s" : ""} this session
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </section>
 
@@ -435,7 +597,152 @@ export default function ListenContentPage({
         </p>
       </div>
 
-      {/* Auth modal — shared by nav sign-in and heatmap CTA */}
+      {/* Session-end prompt */}
+      {videoEnded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={handleDismissEndModal}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-xl border border-surface-border bg-surface-elevated p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close */}
+            <button
+              onClick={handleDismissEndModal}
+              className="absolute top-4 right-4 text-surface-muted hover:text-white transition-colors text-xs leading-none"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+
+            {/* Icon + title */}
+            <div className="text-center space-y-2">
+              <div className="text-tingle-aqua text-3xl leading-none">✦</div>
+              <h2 className="font-serif text-lg text-white">Session complete</h2>
+            </div>
+
+            {/* Summary */}
+            <div className="text-center space-y-2">
+              <p className="text-sm text-white tabular-nums">
+                {sessionEvents.length === 0
+                  ? "No tingles logged this session"
+                  : `${sessionEvents.length} tingle${sessionEvents.length !== 1 ? "s" : ""} logged`}
+              </p>
+              {isAuthenticated ? (
+                <p className="text-xs text-surface-muted leading-relaxed">
+                  Your data is saved to your profile and is contributing to{" "}
+                  <span className="text-tingle-aqua">{creatorName}</span>
+                  &apos;s analytics dashboard.
+                </p>
+              ) : (
+                <p className="text-xs text-surface-muted leading-relaxed">
+                  {sessionEvents.length > 0
+                    ? "Your tingles are captured for this session. "
+                    : ""}
+                  Create a free account to save them permanently, unlock your
+                  heatmap, and help{" "}
+                  <span className="text-tingle-aqua">{creatorName}</span>{" "}
+                  understand their audience.
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col gap-2">
+              {isAuthenticated ? (
+                <Link
+                  href="/profile"
+                  className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors text-center"
+                  onClick={handleDismissEndModal}
+                >
+                  View profile →
+                </Link>
+              ) : (
+                <button
+                  onClick={handleEndModalSignUp}
+                  className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
+                >
+                  Create free account →
+                </button>
+              )}
+              <button
+                onClick={handleDismissEndModal}
+                className="rounded-lg border border-surface-border px-4 py-2 text-xs text-surface-muted hover:text-white hover:border-surface-muted/50 transition-colors"
+              >
+                Keep listening
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* "Did you fall asleep?" prompt — shown on next authenticated visit */}
+      {pendingSleepPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={handleDismissSleepPrompt}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-xl border border-surface-border bg-surface-elevated p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={handleDismissSleepPrompt}
+              className="absolute top-4 right-4 text-surface-muted hover:text-white transition-colors text-xs leading-none"
+              aria-label="Skip"
+            >
+              ✕
+            </button>
+
+            <div className="text-center space-y-2">
+              <svg
+                className="mx-auto text-tingle-purple/70"
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+              <h2 className="font-serif text-lg text-white">How was your sleep?</h2>
+            </div>
+
+            <p className="text-xs text-surface-muted text-center leading-relaxed">
+              Did you fall asleep during{" "}
+              <span className="text-white">
+                &ldquo;{pendingSleepPrompt.contentTitle}&rdquo;
+              </span>{" "}
+              by{" "}
+              <span className="text-tingle-aqua">{pendingSleepPrompt.creatorName}</span>?
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => handleSleepAnswer(true)}
+                className="rounded-lg border border-tingle-purple/50 bg-tingle-purple/10 px-4 py-2 text-xs text-tingle-purple hover:bg-tingle-purple/20 transition-colors"
+              >
+                Yes, I fell asleep
+              </button>
+              <button
+                onClick={() => handleSleepAnswer(false)}
+                className="rounded-lg border border-surface-border px-4 py-2 text-xs text-surface-muted hover:text-white hover:border-surface-muted/50 transition-colors"
+              >
+                No, I stayed awake
+              </button>
+              <button
+                onClick={handleDismissSleepPrompt}
+                className="text-[10px] text-surface-muted/50 hover:text-surface-muted transition-colors py-1"
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auth modal — shared by nav sign-in, heatmap CTA, and session-end prompt */}
       <AuthModal
         open={heatmapAuthOpen}
         onClose={() => setHeatmapAuthOpen(false)}
