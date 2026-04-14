@@ -20,6 +20,8 @@ You paste a YouTube URL into the dashboard. The platform pulls metadata and tran
 
 Multiple videos build up a catalog view: your top triggers across everything you've made, total tingle counts per video, which content performs. The data comes from real listener responses, not just what the transcript says.
 
+Listeners play your videos through a standard YouTube embed — views, watch time, and ad revenue accrue on your channel exactly as they would on YouTube.com. A "Watch on YouTube" link below the player also drives likes, comments, and subscriptions back to your channel.
+
 ---
 
 ## For Listeners
@@ -50,6 +52,7 @@ Multiple videos build up a catalog view: your top triggers across everything you
 | **Status pipeline** | `pending → processing → ready` with live polling on the content detail page |
 | **Insight reports** | Structured JSON report per video stored in `insights_cache`, accessible via dashboard |
 | **Per-video analytics** | Total tingle count, average intensity, duration, and full heatmap per video |
+| **YouTube metric safety** | Listener plays are standard YouTube embeds — views, watch time, and ad revenue count on your channel as normal; a "Watch on YouTube" link drives likes, comments, and subscriptions |
 
 ---
 
