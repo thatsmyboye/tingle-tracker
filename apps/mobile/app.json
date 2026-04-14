@@ -2,6 +2,7 @@
   "expo": {
     "name": "Tingle Tracker",
     "slug": "tingle-tracker",
+    "owner": "thatsmyboye",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -22,7 +23,12 @@
       },
       "package": "com.tingletracker.app"
     },
-    "plugins": ["expo-router"],
-    "scheme": "tingle-tracker"
+    "plugins": ["expo-router", "expo-dev-client"],
+    "scheme": "tingle-tracker",
+    "extra": {
+      "eas": {
+        "projectId": "eb887393-5134-41b1-9b83-b0a56491c3bc"
+      }
+    }
   }
 }
