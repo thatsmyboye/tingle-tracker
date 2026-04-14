@@ -36,7 +36,7 @@ interface ContentRow {
   duration_seconds: number | null;
   thumbnail_url: string | null;
   channel_title: string | null;
-  channel_id: string | null;
+  youtube_channel_id: string | null;
   creators: { display_name: string } | null;
 }
 
@@ -143,7 +143,7 @@ export default function ListenContentPage({
     supabase
       .from("content")
       .select(
-        "id, youtube_video_id, title, description, duration_seconds, thumbnail_url, channel_title, channel_id, creators(display_name)"
+        "id, youtube_video_id, title, description, duration_seconds, thumbnail_url, channel_title, youtube_channel_id, creators(display_name)"
       )
       .eq("id", contentId)
       .eq("status", "ready")
@@ -442,9 +442,9 @@ export default function ListenContentPage({
           >
             Watch on YouTube ↗
           </a>
-          {content.channel_id && (
+          {content.youtube_channel_id && (
             <a
-              href={`https://www.youtube.com/channel/${content.channel_id}?sub_confirmation=1`}
+              href={`https://www.youtube.com/channel/${content.youtube_channel_id}?sub_confirmation=1`}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-tingle-aqua transition-colors"
