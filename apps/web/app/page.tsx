@@ -111,18 +111,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-surface-border">
-        <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
-          <span className="text-xs text-surface-muted">Tingle Tracker · Early access</span>
-          <Link
-            href="/demo"
-            className="text-xs text-surface-muted hover:text-tingle-aqua transition-colors"
-          >
-            Try demo
-          </Link>
-        </div>
-      </footer>
     </main>
   );
 }
