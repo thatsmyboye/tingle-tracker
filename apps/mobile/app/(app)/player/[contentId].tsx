@@ -11,6 +11,7 @@ import { useAuthContext } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { YouTubePlayerView, type YouTubePlayerViewRef } from "@/components/YouTubePlayerView";
 import { TingleLogger } from "@/components/TingleLogger";
+import { TingleHeatmap } from "@/components/TingleHeatmap";
 
 // =============================================================================
 // Player screen — /player/[contentId]
@@ -125,13 +126,14 @@ export default function PlayerScreen() {
         />
       </View>
 
-      {/* Heatmap placeholder — visualisation coming in a future release */}
-      <View style={styles.heatmapPlaceholder}>
+      {/* Heatmap */}
+      <View style={styles.heatmapSection}>
         <Text style={styles.sectionLabel}>Tingle Heatmap</Text>
-        <Text style={styles.heatmapHint}>
-          Full heatmap visualisation coming soon.{"\n"}
-          Your taps are saved and will appear in your creator&apos;s dashboard.
-        </Text>
+        <TingleHeatmap
+          contentId={content.id}
+          userId={user.id}
+          durationSeconds={content.duration_seconds}
+        />
       </View>
     </ScrollView>
   );
@@ -194,7 +196,7 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     alignSelf: "flex-start",
   },
-  heatmapPlaceholder: {
+  heatmapSection: {
     paddingHorizontal: 20,
     paddingVertical: 20,
     borderWidth: 1,
@@ -203,11 +205,5 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     backgroundColor: "#0D0D16",
     gap: 12,
-  },
-  heatmapHint: {
-    color: "#3A3A56",
-    fontSize: 12,
-    fontFamily: "monospace",
-    lineHeight: 18,
   },
 });

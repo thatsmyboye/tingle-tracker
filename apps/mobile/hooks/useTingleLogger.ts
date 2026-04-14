@@ -3,8 +3,8 @@ import NetInfo from "@react-native-community/netinfo";
 import type { PlayerAdapterRef, TingleIntensity } from "@tingle/types";
 import { supabase } from "@/lib/supabase";
 import {
-  clearQueue,
   enqueueEvent,
+  flushQueueWithRetry,
   readQueue,
 } from "@/lib/offlineQueue";
 
@@ -40,19 +40,18 @@ export function useTingleLogger({
   const [isDebouncing, setIsDebouncing] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** Flush the offline queue when online — fire-and-forget */
+  /** Flush the offline queue when online, with exponential-backoff retries. */
   const flushQueue = useCallback(async () => {
-    const queue = await readQueue();
-    if (queue.length === 0) return;
-
     const net = await NetInfo.fetch();
     if (!net.isConnected) return;
 
-    const { error } = await supabase.from("tingle_events").insert(queue);
-    if (!error) {
-      await clearQueue();
-      setPendingCount(0);
-    }
+    await flushQueueWithRetry(async (events) => {
+      const { error } = await supabase.from("tingle_events").insert(events);
+      return !error;
+    });
+
+    const remaining = await readQueue();
+    setPendingCount(remaining.length);
   }, []);
 
   const log = useCallback(

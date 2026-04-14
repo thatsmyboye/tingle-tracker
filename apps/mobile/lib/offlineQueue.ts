@@ -44,6 +44,40 @@ export async function clearQueue(): Promise<void> {
   }
 }
 
+/**
+ * Flush the offline queue with exponential backoff.
+ *
+ * Calls `insert` with the full queue. On success `insert` should return true
+ * and the queue is cleared. On failure the attempt is retried up to
+ * `maxAttempts` times with delays of 1 s, 2 s, 4 s … before giving up and
+ * leaving the queue intact for the next session.
+ */
+export async function flushQueueWithRetry(
+  insert: (events: QueuedTingleEvent[]) => Promise<boolean>,
+  maxAttempts = 3,
+): Promise<void> {
+  const queue = await readQueue();
+  if (queue.length === 0) return;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const ok = await insert(queue);
+      if (ok) {
+        await clearQueue();
+        return;
+      }
+    } catch {
+      // transient error — fall through to retry
+    }
+    if (attempt < maxAttempts - 1) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, 1000 * Math.pow(2, attempt))
+      );
+    }
+  }
+  // All attempts exhausted — queue remains for next flush opportunity
+}
+
 /** Remove events older than maxAgeMs (default 7 days) to prevent unbounded growth */
 export async function pruneQueue(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<void> {
   const queue = await readQueue();
