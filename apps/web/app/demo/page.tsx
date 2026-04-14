@@ -84,7 +84,7 @@ export default function DemoPage() {
             </p>
           </div>
           <a
-            href="mailto:hello@tingle-tracker.app?subject=Early%20access%20request"
+            href="mailto:paul@banton-digital.com?subject=Early%20access%20request"
             className="flex-shrink-0 rounded-lg border border-tingle-aqua/40 bg-tingle-aqua/10 px-5 py-2.5 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors whitespace-nowrap"
           >
             Request access →
