@@ -135,20 +135,28 @@ const DEV_LAUNCHER_BRIDGE_BLOCK_FIXED = `    guard let bridge = bridgeDelegateHa
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function findPackageRoot(pkgPrefix) {
+  const roots = findAllPackageRoots(pkgPrefix);
+  return roots.length > 0 ? roots[0] : null;
+}
+
+// Returns every virtual-store instance of a package whose directory name
+// starts with pkgPrefix.  pnpm can install the same package multiple times
+// under different peer-dep hashes; we must patch all of them.
+function findAllPackageRoots(pkgPrefix) {
   const virtualStore = path.join(process.cwd(), 'node_modules', '.pnpm');
   if (!fs.existsSync(virtualStore)) {
     const flat = path.join(process.cwd(), 'node_modules', pkgPrefix.split('@')[0]);
-    return fs.existsSync(flat) ? flat : null;
+    return fs.existsSync(flat) ? [flat] : [];
   }
-  const entries = fs.readdirSync(virtualStore);
-  for (const entry of entries) {
+  const pkgName = pkgPrefix.split('@')[0];
+  const results = [];
+  for (const entry of fs.readdirSync(virtualStore)) {
     if (entry.startsWith(pkgPrefix)) {
-      const pkgName = pkgPrefix.split('@')[0];
       const candidate = path.join(virtualStore, entry, 'node_modules', pkgName);
-      if (fs.existsSync(candidate)) return candidate;
+      if (fs.existsSync(candidate)) results.push(candidate);
     }
   }
-  return null;
+  return results;
 }
 
 function patchFile(filePath, replacements) {
@@ -259,64 +267,69 @@ if (!rnRoot) {
 // aborts with "Unknown prop type for …: undefined".  Changing the aliases to
 // `null` is the correct form for no-payload events in RN 0.74 Codegen.
 
-const rnScreensRoot = findPackageRoot('react-native-screens@4.24.0');
-if (!rnScreensRoot) {
+// pnpm can install the same package multiple times under different peer-dep
+// hashes.  findAllPackageRoots returns every virtual-store instance so we
+// patch them all, regardless of which hash EAS resolves on its machines.
+const rnScreensRoots = findAllPackageRoots('react-native-screens@4.24.0');
+if (rnScreensRoots.length === 0) {
   console.log('[patch-native-deps] react-native-screens not found, skipping');
 } else {
-  const fabricDir = path.join(rnScreensRoot, 'src', 'fabric');
+  for (const rnScreensRoot of rnScreensRoots) {
+    const fabricDir = path.join(rnScreensRoot, 'src', 'fabric');
 
-  // ScreenStackHeaderConfigNativeComponent.ts — OnAttachedEvent, OnDetachedEvent
-  patchFile(
-    path.join(fabricDir, 'ScreenStackHeaderConfigNativeComponent.ts'),
-    [
+    // ScreenStackHeaderConfigNativeComponent.ts — OnAttachedEvent, OnDetachedEvent
+    patchFile(
+      path.join(fabricDir, 'ScreenStackHeaderConfigNativeComponent.ts'),
       [
-        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnAttachedEvent = Readonly<{}>;\n// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnDetachedEvent = Readonly<{}>;',
-        'type OnAttachedEvent = null;\ntype OnDetachedEvent = null;',
-      ],
-    ]
-  );
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnAttachedEvent = Readonly<{}>;\n// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnDetachedEvent = Readonly<{}>;',
+          'type OnAttachedEvent = null;\ntype OnDetachedEvent = null;',
+        ],
+      ]
+    );
 
-  // ScreenNativeComponent.ts — ScreenEvent
-  patchFile(
-    path.join(fabricDir, 'ScreenNativeComponent.ts'),
-    [
+    // ScreenNativeComponent.ts — ScreenEvent
+    patchFile(
+      path.join(fabricDir, 'ScreenNativeComponent.ts'),
       [
-        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
-        'type ScreenEvent = null;',
-      ],
-    ]
-  );
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
+          'type ScreenEvent = null;',
+        ],
+      ]
+    );
 
-  // ModalScreenNativeComponent.ts — ScreenEvent (identical pattern)
-  patchFile(
-    path.join(fabricDir, 'ModalScreenNativeComponent.ts'),
-    [
+    // ModalScreenNativeComponent.ts — ScreenEvent (identical pattern)
+    patchFile(
+      path.join(fabricDir, 'ModalScreenNativeComponent.ts'),
       [
-        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
-        'type ScreenEvent = null;',
-      ],
-    ]
-  );
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
+          'type ScreenEvent = null;',
+        ],
+      ]
+    );
 
-  // ScreenStackNativeComponent.ts — FinishTransitioningEvent
-  patchFile(
-    path.join(fabricDir, 'ScreenStackNativeComponent.ts'),
-    [
+    // ScreenStackNativeComponent.ts — FinishTransitioningEvent
+    patchFile(
+      path.join(fabricDir, 'ScreenStackNativeComponent.ts'),
       [
-        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype FinishTransitioningEvent = Readonly<{}>;',
-        'type FinishTransitioningEvent = null;',
-      ],
-    ]
-  );
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype FinishTransitioningEvent = Readonly<{}>;',
+          'type FinishTransitioningEvent = null;',
+        ],
+      ]
+    );
 
-  // SearchBarNativeComponent.ts — SearchBarEvent (exported)
-  patchFile(
-    path.join(fabricDir, 'SearchBarNativeComponent.ts'),
-    [
+    // SearchBarNativeComponent.ts — SearchBarEvent (exported)
+    patchFile(
+      path.join(fabricDir, 'SearchBarNativeComponent.ts'),
       [
-        '// eslint-disable-next-line @typescript-eslint/ban-types\nexport type SearchBarEvent = Readonly<{}>;',
-        'export type SearchBarEvent = null;',
-      ],
-    ]
-  );
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\nexport type SearchBarEvent = Readonly<{}>;',
+          'export type SearchBarEvent = null;',
+        ],
+      ]
+    );
+  }
 }
