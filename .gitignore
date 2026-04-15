@@ -43,3 +43,8 @@ pnpm-debug.log*
 
 # Testing
 coverage/
+
+# Credentials
+credentials.json
+credentials/ios/dist-cert.p12
+credentials/ios/profile.mobileprovision
