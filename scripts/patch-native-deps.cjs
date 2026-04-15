@@ -76,14 +76,13 @@ const DEV_LAUNCHER_BRIDGE_BLOCK_FIXED = `    guard let bridge = bridgeDelegateHa
     }
     developmentClientController.appBridge = bridge
 
-    guard let rootView = bridgeDelegateHandler.createRootView(
+    // createRootView(with:moduleName:initProps:) returns UIView (non-optional)
+    let rootView = bridgeDelegateHandler.createRootView(
       with: bridge,
       // swiftlint:disable:next force_unwrapping
       moduleName: self.rootViewModuleName!,
       initProps: self.rootViewInitialProperties ?? [:]
-    ) else {
-      return
-    }`;
+    )`;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -182,8 +181,13 @@ if (!devLauncherRoot) {
         'public override func createRootView(reactDelegate: ExpoReactDelegate, bridge: RCTBridge,',
         'public func createRootView(reactDelegate: ExpoReactDelegate, bridge: RCTBridge,',
       ],
-      // (c+d) unwrap optional bridge and rootViewInitialProperties
+      // (c+d) unwrap optional bridge; use let (not guard let) for non-optional rootView
       [DEV_LAUNCHER_BRIDGE_BLOCK, DEV_LAUNCHER_BRIDGE_BLOCK_FIXED],
+      // Idempotency: if a prior patch run left guard let rootView (wrong), fix it
+      [
+        `    guard let rootView = bridgeDelegateHandler.createRootView(\n      with: bridge,\n      // swiftlint:disable:next force_unwrapping\n      moduleName: self.rootViewModuleName!,\n      initProps: self.rootViewInitialProperties ?? [:]\n    ) else {\n      return\n    }`,
+        `    // createRootView(with:moduleName:initProps:) returns UIView (non-optional)\n    let rootView = bridgeDelegateHandler.createRootView(\n      with: bridge,\n      // swiftlint:disable:next force_unwrapping\n      moduleName: self.rootViewModuleName!,\n      initProps: self.rootViewInitialProperties ?? [:]\n    )`,
+      ],
     ]
   );
 }
