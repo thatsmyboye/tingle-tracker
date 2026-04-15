@@ -1,5 +1,15 @@
 {
   "expo": {
+    "name": "Tingle Tracker",
+    "slug": "tingle-tracker",
+    "owner": "thatsmyboye",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "com.tingletracker.app"
+    },
+    "android": {
+      "package": "com.tingletracker.app"
+    },
     "extra": {
       "eas": {
         "projectId": "eb887393-5134-41b1-9b83-b0a56491c3bc"
