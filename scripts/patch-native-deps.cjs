@@ -40,6 +40,22 @@
  *      d. `initProps: self.rootViewInitialProperties`
  *         → `initProps: self.rootViewInitialProperties ?? [:]`
  *         ([AnyHashable:Any]? → non-optional required by createRootView)
+ *
+ * ── react-native-screens ───────────────────────────────────────────────────
+ * Codegen (RN 0.74 "Unknown prop type: undefined" for empty event payloads):
+ *   7. src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+ *      `type OnAttachedEvent  = Readonly<{}>` → `null`
+ *      `type OnDetachedEvent  = Readonly<{}>` → `null`
+ *   8. src/fabric/ScreenNativeComponent.ts
+ *      `type ScreenEvent = Readonly<{}>` → `null`
+ *   9. src/fabric/ModalScreenNativeComponent.ts
+ *      `type ScreenEvent = Readonly<{}>` → `null`
+ *  10. src/fabric/ScreenStackNativeComponent.ts
+ *      `type FinishTransitioningEvent = Readonly<{}>` → `null`
+ *  11. src/fabric/SearchBarNativeComponent.ts
+ *      `export type SearchBarEvent = Readonly<{}>` → `null`
+ *      RN 0.74 Codegen resolves empty Readonly<{}> as `undefined`; `null` is
+ *      the correct form for no-payload DirectEventHandler in that Codegen.
  */
 
 'use strict';
@@ -233,5 +249,74 @@ if (!rnRoot) {
   patchFile(
     path.join(rnRoot, 'Libraries', 'AppDelegate', 'RCTAppSetupUtils.h'),
     [[RCT_APP_SETUP_UTILS_JSC_BLOCK, RCT_APP_SETUP_UTILS_JSC_BLOCK_FIXED]]
+  );
+}
+
+// ── react-native-screens patches ────────────────────────────────────────────
+//
+// react-native-screens@4.x defines event payload types as Readonly<{}> (empty
+// object).  React Native 0.74's Codegen parser treats that as `undefined` and
+// aborts with "Unknown prop type for …: undefined".  Changing the aliases to
+// `null` is the correct form for no-payload events in RN 0.74 Codegen.
+
+const rnScreensRoot = findPackageRoot('react-native-screens@4.24.0');
+if (!rnScreensRoot) {
+  console.log('[patch-native-deps] react-native-screens not found, skipping');
+} else {
+  const fabricDir = path.join(rnScreensRoot, 'src', 'fabric');
+
+  // ScreenStackHeaderConfigNativeComponent.ts — OnAttachedEvent, OnDetachedEvent
+  patchFile(
+    path.join(fabricDir, 'ScreenStackHeaderConfigNativeComponent.ts'),
+    [
+      [
+        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnAttachedEvent = Readonly<{}>;\n// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnDetachedEvent = Readonly<{}>;',
+        'type OnAttachedEvent = null;\ntype OnDetachedEvent = null;',
+      ],
+    ]
+  );
+
+  // ScreenNativeComponent.ts — ScreenEvent
+  patchFile(
+    path.join(fabricDir, 'ScreenNativeComponent.ts'),
+    [
+      [
+        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
+        'type ScreenEvent = null;',
+      ],
+    ]
+  );
+
+  // ModalScreenNativeComponent.ts — ScreenEvent (identical pattern)
+  patchFile(
+    path.join(fabricDir, 'ModalScreenNativeComponent.ts'),
+    [
+      [
+        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
+        'type ScreenEvent = null;',
+      ],
+    ]
+  );
+
+  // ScreenStackNativeComponent.ts — FinishTransitioningEvent
+  patchFile(
+    path.join(fabricDir, 'ScreenStackNativeComponent.ts'),
+    [
+      [
+        '// eslint-disable-next-line @typescript-eslint/ban-types\ntype FinishTransitioningEvent = Readonly<{}>;',
+        'type FinishTransitioningEvent = null;',
+      ],
+    ]
+  );
+
+  // SearchBarNativeComponent.ts — SearchBarEvent (exported)
+  patchFile(
+    path.join(fabricDir, 'SearchBarNativeComponent.ts'),
+    [
+      [
+        '// eslint-disable-next-line @typescript-eslint/ban-types\nexport type SearchBarEvent = Readonly<{}>;',
+        'export type SearchBarEvent = null;',
+      ],
+    ]
   );
 }
