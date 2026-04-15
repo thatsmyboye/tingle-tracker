@@ -26,6 +26,9 @@
     "overrides": {
       "@types/react": "^18.3.0",
       "react-native-screens": "~3.37.0"
+    },
+    "patchedDependencies": {
+      "react-native-screens@4.24.0": "patches/react-native-screens@4.24.0.patch"
     }
   }
 }
