@@ -7,6 +7,8 @@
 
 export type TriggerCategory = "visual" | "aural" | "tactile_adjacent";
 
+export type CreatorPlan = "free" | "pro" | "studio";
+
 /** String ENUM matching Postgres tingle_intensity enum values */
 export type TingleIntensity = "1" | "2" | "3" | "4" | "5";
 
@@ -46,6 +48,7 @@ export interface Creator {
   youtube_channel_id: string | null;
   youtube_channel_url: string | null;
   is_verified: boolean;
+  plan: CreatorPlan;
   created_at: string;
   updated_at: string;
 }
