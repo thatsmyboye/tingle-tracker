@@ -7,11 +7,6 @@ settings:
 overrides:
   '@types/react': ^18.3.0
 
-patchedDependencies:
-  expo-dev-menu@4.5.8:
-    hash: 344c4a8619a4ae779c261b772f18ea14bfe364bcd8145c6ee0f284e6752e6a12
-    path: patches/expo-dev-menu@4.5.8.patch
-
 importers:
 
   .:
@@ -10516,7 +10511,7 @@ snapshots:
     dependencies:
       expo: 51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0)
       expo-dev-launcher: 3.6.10(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
-      expo-dev-menu: 4.5.8(patch_hash=344c4a8619a4ae779c261b772f18ea14bfe364bcd8145c6ee0f284e6752e6a12)(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
+      expo-dev-menu: 4.5.8(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
       expo-dev-menu-interface: 1.7.2(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
       expo-manifests: 0.13.2(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
       expo-updates-interface: 0.15.3(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
@@ -10527,7 +10522,7 @@ snapshots:
     dependencies:
       ajv: 8.11.0
       expo: 51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0)
-      expo-dev-menu: 4.5.8(patch_hash=344c4a8619a4ae779c261b772f18ea14bfe364bcd8145c6ee0f284e6752e6a12)(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
+      expo-dev-menu: 4.5.8(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
       expo-manifests: 0.13.2(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))
       resolve-from: 5.0.0
       semver: 7.7.4
@@ -10538,7 +10533,7 @@ snapshots:
     dependencies:
       expo: 51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0)
 
-  expo-dev-menu@4.5.8(patch_hash=344c4a8619a4ae779c261b772f18ea14bfe364bcd8145c6ee0f284e6752e6a12)(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0)):
+  expo-dev-menu@4.5.8(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0)):
     dependencies:
       expo: 51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0)
       expo-dev-menu-interface: 1.7.2(expo@51.0.39(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(react-native@0.74.5(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.2.0))(react@18.2.0))

@@ -7,6 +7,7 @@
     "pnpm": ">=9.0.0"
   },
   "scripts": {
+    "postinstall": "node scripts/patch-expo-dev-menu.cjs",
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
@@ -23,9 +24,6 @@
   "pnpm": {
     "overrides": {
       "@types/react": "^18.3.0"
-    },
-    "patchedDependencies": {
-      "expo-dev-menu@4.5.8": "patches/expo-dev-menu@4.5.8.patch"
     }
   }
 }
