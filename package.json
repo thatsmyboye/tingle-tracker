@@ -24,7 +24,8 @@
   "packageManager": "pnpm@10.33.0",
   "pnpm": {
     "overrides": {
-      "@types/react": "^18.3.0"
+      "@types/react": "^18.3.0",
+      "react-native-screens": "~3.37.0"
     }
   }
 }

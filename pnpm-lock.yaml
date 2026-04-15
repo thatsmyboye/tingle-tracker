@@ -6,6 +6,7 @@ settings:
 
 overrides:
   '@types/react': ^18.3.0
+  react-native-screens: ~3.37.0
 
 importers:
 
@@ -1931,7 +1932,7 @@ packages:
       react: '*'
       react-native: '*'
       react-native-safe-area-context: '>= 3.0.0'
-      react-native-screens: '>= 3.0.0'
+      react-native-screens: ~3.37.0
 
   '@react-navigation/core@6.4.17':
     resolution: {integrity: sha512-Nd76EpomzChWAosGqWOYE3ItayhDzIEzzZsT7PfGcRFDgW5miHV2t4MZcq9YIK4tzxZjVVpYbIynOOQQd1e0Cg==}
@@ -1953,7 +1954,7 @@ packages:
       react: '*'
       react-native: '*'
       react-native-safe-area-context: '>= 3.0.0'
-      react-native-screens: '>= 3.0.0'
+      react-native-screens: ~3.37.0
 
   '@react-navigation/native@6.1.18':
     resolution: {integrity: sha512-mIT9MiL/vMm4eirLcmw2h6h/Nm5FICtnYSdohq4vTLA2FF/6PNhByM7s8ffqoVfE5L0uAa6Xda1B7oddolUiGg==}
@@ -3425,7 +3426,7 @@ packages:
       expo-status-bar: '*'
       react-native-reanimated: '*'
       react-native-safe-area-context: '*'
-      react-native-screens: '*'
+      react-native-screens: ~3.37.0
     peerDependenciesMeta:
       '@react-navigation/drawer':
         optional: true
