@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "prebuildCommand": "node scripts/patch-native-deps.cjs",
       "ios": {
         "simulator": true
       },
@@ -16,6 +17,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "prebuildCommand": "node scripts/patch-native-deps.cjs",
       "ios": {
         "simulator": false
       },
@@ -26,6 +28,7 @@
     "production": {
       "autoIncrement": true,
       "credentialsSource": "remote",
+      "prebuildCommand": "node scripts/patch-native-deps.cjs",
       "ios": {
         "simulator": false
       },

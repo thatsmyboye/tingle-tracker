@@ -262,15 +262,17 @@ if (!rnRoot) {
 
 // ── react-native-screens patches ────────────────────────────────────────────
 //
-// react-native-screens@4.x defines event payload types as Readonly<{}> (empty
-// object).  React Native 0.74's Codegen parser treats that as `undefined` and
-// aborts with "Unknown prop type for …: undefined".  Changing the aliases to
-// `null` is the correct form for no-payload events in RN 0.74 Codegen.
-
-// pnpm can install the same package multiple times under different peer-dep
-// hashes.  findAllPackageRoots returns every virtual-store instance so we
-// patch them all, regardless of which hash EAS resolves on its machines.
-const rnScreensRoots = findAllPackageRoots('react-native-screens@4.24.0');
+// react-native-screens (3.x and 4.x) defines event payload types as
+// Readonly<{}> (empty object).  React Native 0.74's Codegen parser treats that
+// as `undefined` and aborts with "Unknown prop type for …: undefined".
+// Changing the aliases to `null` is the correct form for no-payload events
+// in RN 0.74 Codegen.
+//
+// Version-agnostic: we match any installed version of react-native-screens so
+// this script works regardless of whether pnpm resolves 3.37.0 or 4.24.0.
+// pnpm can also install the same package multiple times under different
+// peer-dep hashes; findAllPackageRoots returns every virtual-store instance.
+const rnScreensRoots = findAllPackageRoots('react-native-screens@');
 if (rnScreensRoots.length === 0) {
   console.log('[patch-native-deps] react-native-screens not found, skipping');
 } else {
@@ -322,11 +324,20 @@ if (rnScreensRoots.length === 0) {
     );
 
     // SearchBarNativeComponent.ts — SearchBarEvent (exported)
+    // 4.x has a per-line eslint-disable comment; 3.37.0 only has a file-top
+    // /* eslint-disable */ so we need both patterns (tried in order; whichever
+    // matches first wins — after replacement the other won't match anyway).
     patchFile(
       path.join(fabricDir, 'SearchBarNativeComponent.ts'),
       [
+        // 4.x format: per-line eslint-disable comment present
         [
           '// eslint-disable-next-line @typescript-eslint/ban-types\nexport type SearchBarEvent = Readonly<{}>;',
+          'export type SearchBarEvent = null;',
+        ],
+        // 3.37.0 format: no per-line comment (file has /* eslint-disable */ at top)
+        [
+          'export type SearchBarEvent = Readonly<{}>;',
           'export type SearchBarEvent = null;',
         ],
       ]
