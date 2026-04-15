@@ -1,0 +1,73 @@
+diff --git a/src/fabric/ModalScreenNativeComponent.ts b/src/fabric/ModalScreenNativeComponent.ts
+index 9005280de2e1e8e8059991e72bbc7c60623599c9..302bbe1c628f00f7800efb24599100ef2d11eda1 100644
+--- a/src/fabric/ModalScreenNativeComponent.ts
++++ b/src/fabric/ModalScreenNativeComponent.ts
+@@ -3,8 +3,7 @@
+ import { codegenNativeComponent } from 'react-native';
+ import type { CodegenTypes as CT, ViewProps, ColorValue } from 'react-native';
+ 
+-// eslint-disable-next-line @typescript-eslint/ban-types
+-type ScreenEvent = Readonly<{}>;
++type ScreenEvent = null;
+ 
+ type ScreenDismissedEvent = Readonly<{
+   dismissCount: CT.Int32;
+diff --git a/src/fabric/ScreenNativeComponent.ts b/src/fabric/ScreenNativeComponent.ts
+index 257e9e42366138b917e3ed339922ff15397314bd..ababd89f249ea41c8fc6db40df0a99ef17e4ed3a 100644
+--- a/src/fabric/ScreenNativeComponent.ts
++++ b/src/fabric/ScreenNativeComponent.ts
+@@ -3,8 +3,7 @@
+ import { codegenNativeComponent } from 'react-native';
+ import type { CodegenTypes as CT, ViewProps, ColorValue } from 'react-native';
+ 
+-// eslint-disable-next-line @typescript-eslint/ban-types
+-type ScreenEvent = Readonly<{}>;
++type ScreenEvent = null;
+ 
+ type ScreenDismissedEvent = Readonly<{
+   dismissCount: CT.Int32;
+diff --git a/src/fabric/ScreenStackHeaderConfigNativeComponent.ts b/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+index fcbb2683cb438fe433edc7b3261041c75776d479..7d1446e16cba925829abbcdc8451e3cebad8b96a 100644
+--- a/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
++++ b/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+@@ -5,10 +5,8 @@ import type { CodegenTypes as CT, ViewProps, ColorValue } from 'react-native';
+ 
+ type DirectionType = 'rtl' | 'ltr';
+ 
+-// eslint-disable-next-line @typescript-eslint/ban-types
+-type OnAttachedEvent = Readonly<{}>;
+-// eslint-disable-next-line @typescript-eslint/ban-types
+-type OnDetachedEvent = Readonly<{}>;
++type OnAttachedEvent = null;
++type OnDetachedEvent = null;
+ 
+ type OnPressHeaderBarButtonItemEvent = Readonly<{ buttonId: string }>;
+ type OnPressHeaderBarButtonMenuItemEvent = Readonly<{ menuId: string }>;
+diff --git a/src/fabric/ScreenStackNativeComponent.ts b/src/fabric/ScreenStackNativeComponent.ts
+index b6e1a342309fbe342501747d44dd2262cde1d97f..3ab28ef1ae8ced72365d59ec6722b07ea864d8e1 100644
+--- a/src/fabric/ScreenStackNativeComponent.ts
++++ b/src/fabric/ScreenStackNativeComponent.ts
+@@ -3,8 +3,7 @@
+ import { codegenNativeComponent } from 'react-native';
+ import type { CodegenTypes as CT, ViewProps } from 'react-native';
+ 
+-// eslint-disable-next-line @typescript-eslint/ban-types
+-type FinishTransitioningEvent = Readonly<{}>;
++type FinishTransitioningEvent = null;
+ 
+ export interface NativeProps extends ViewProps {
+   iosPreventReattachmentOfDismissedScreens?: CT.WithDefault<boolean, true>;
+diff --git a/src/fabric/SearchBarNativeComponent.ts b/src/fabric/SearchBarNativeComponent.ts
+index df774b955fffe8b6bb76883da3b12a2db746b9f7..73c665a290b5203fa0a210e1202f4faf3dd82306 100644
+--- a/src/fabric/SearchBarNativeComponent.ts
++++ b/src/fabric/SearchBarNativeComponent.ts
+@@ -8,8 +8,7 @@ import type {
+   HostComponent,
+ } from 'react-native';
+ 
+-// eslint-disable-next-line @typescript-eslint/ban-types
+-export type SearchBarEvent = Readonly<{}>;
++export type SearchBarEvent = null;
+ 
+ export type SearchButtonPressedEvent = Readonly<{
+   text?: string;
