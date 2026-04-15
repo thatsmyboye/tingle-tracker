@@ -1,9 +1,16 @@
 /**
- * Patches expo-dev-menu@4.5.8 and expo-dev-launcher@3.6.10 to fix iOS build
- * errors with RN 0.74 + Xcode 15.
+ * Patches expo-dev-menu@4.5.8, expo-dev-launcher@3.6.10, and react-native@0.74.x
+ * to fix iOS build errors with RN 0.74 + Xcode 15.
  *
  * Runs as a postinstall hook — works regardless of pnpm version (v9 or v10).
  * Files are unlinked before writing to break pnpm hardlinks to the global store.
+ *
+ * ── react-native ───────────────────────────────────────────────────────────
+ *   0. Libraries/AppDelegate/RCTAppSetupUtils.h
+ *      RN 0.74 removed JSCExecutorFactory.h but RCTAppSetupUtils.h still
+ *      tries to include it when USE_HERMES is not defined. Replace the
+ *      USE_HERMES preprocessor guard with __has_include checks so the header
+ *      works regardless of whether USE_HERMES is propagated by the build system.
  *
  * ── expo-dev-menu ──────────────────────────────────────────────────────────
  * Swift (Xcode 15 strict override checking):
@@ -15,12 +22,13 @@
  *      `public override func createRootView` → `public func createRootView`
  *      (method no longer exists on superclass)
  *
- * Objective-C (RN 0.74 removed JSCExecutorFactory.h):
+ * Objective-C (defence-in-depth — USE_HERMES guard in each importer):
  *   3. DevMenuRCTBridge.mm
  *   4. ReactNativeCompatibles/ReactNative/DevClientAppDelegate.mm
  *   5. ReactNativeCompatibles/ReactNative72/DevClientAppDelegate.mm
  *      Prepend `#ifndef USE_HERMES / #define USE_HERMES 1 / #endif` before
- *      RCTAppSetupUtils.h so JSCExecutorFactory.h is never included.
+ *      RCTAppSetupUtils.h so JSCExecutorFactory.h is never included even if
+ *      the react-native patch is not in effect for some reason.
  *
  * ── expo-dev-launcher ──────────────────────────────────────────────────────
  * Swift (Xcode 15 strict override checking + optional type mismatches):
@@ -55,6 +63,30 @@ const RCT_APP_SETUP_IMPORT_FIXED = `// RN 0.74 removed JSCExecutorFactory.h; gua
 #define USE_HERMES 1
 #endif
 ${RCT_APP_SETUP_IMPORT}`;
+
+// RCTAppSetupUtils.h: the block that gates on USE_HERMES. In RN 0.74, JSCExecutorFactory.h
+// was removed, so any build where USE_HERMES isn't propagated fails. Replace with
+// __has_include so the choice is made at compile time based on file existence.
+const RCT_APP_SETUP_UTILS_JSC_BLOCK = `#if USE_HERMES
+#if __has_include(<jsireact/HermesExecutorFactory.h>)
+#import <jsireact/HermesExecutorFactory.h>
+#elif __has_include(<reacthermes/HermesExecutorFactory.h>)
+#import <reacthermes/HermesExecutorFactory.h>
+#endif
+#else // USE_HERMES
+#import <React/JSCExecutorFactory.h>
+#endif // USE_HERMES`;
+
+const RCT_APP_SETUP_UTILS_JSC_BLOCK_FIXED = `// Patched: use __has_include instead of USE_HERMES so this header works
+// regardless of whether the build system propagates the USE_HERMES macro.
+// JSCExecutorFactory.h was removed in RN 0.74; omitting it is safe when Hermes is used.
+#if __has_include(<jsireact/HermesExecutorFactory.h>)
+#import <jsireact/HermesExecutorFactory.h>
+#elif __has_include(<reacthermes/HermesExecutorFactory.h>)
+#import <reacthermes/HermesExecutorFactory.h>
+#elif __has_include(<React/JSCExecutorFactory.h>)
+#import <React/JSCExecutorFactory.h>
+#endif`;
 
 // The bridge-creation block in ExpoDevLauncherReactDelegateHandler.swift that
 // uses `let` (yields optional) then passes the optional directly to methods
@@ -189,5 +221,17 @@ if (!devLauncherRoot) {
         `    // createRootView(with:moduleName:initProps:) returns UIView (non-optional)\n    let rootView = bridgeDelegateHandler.createRootView(\n      with: bridge,\n      // swiftlint:disable:next force_unwrapping\n      moduleName: self.rootViewModuleName!,\n      initProps: self.rootViewInitialProperties ?? [:]\n    )`,
       ],
     ]
+  );
+}
+
+// ── react-native patches ────────────────────────────────────────────────────
+
+const rnRoot = findPackageRoot('react-native@0.74.');
+if (!rnRoot) {
+  console.log('[patch-native-deps] react-native not found, skipping');
+} else {
+  patchFile(
+    path.join(rnRoot, 'Libraries', 'AppDelegate', 'RCTAppSetupUtils.h'),
+    [[RCT_APP_SETUP_UTILS_JSC_BLOCK, RCT_APP_SETUP_UTILS_JSC_BLOCK_FIXED]]
   );
 }
