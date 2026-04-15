@@ -8,6 +8,7 @@ import {
 import { useRouter, useSegments } from "expo-router";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import type { CreatorPlan } from "@tingle/types";
 
 // =============================================================================
 // AuthContext — central auth state for the mobile app
@@ -21,6 +22,8 @@ interface AuthContextValue {
   session: Session | null;
   user: User | null;
   isLoading: boolean;
+  /** Plan for users who are also creators. null for listener-only accounts. */
+  creatorPlan: CreatorPlan | null;
   signInWithEmail: (email: string, password: string) => Promise<string | null>;
   signUpWithEmail: (
     email: string,
@@ -33,6 +36,7 @@ const AuthContext = createContext<AuthContextValue>({
   session: null,
   user: null,
   isLoading: true,
+  creatorPlan: null,
   signInWithEmail: async () => null,
   signUpWithEmail: async () => ({ error: null, needsConfirmation: false }),
   signOut: async () => {},
@@ -41,6 +45,7 @@ const AuthContext = createContext<AuthContextValue>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [creatorPlan, setCreatorPlan] = useState<CreatorPlan | null>(null);
   const router = useRouter();
   const segments = useSegments();
 
@@ -62,6 +67,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // ---- Creator plan -----------------------------------------------------------
+
+  useEffect(() => {
+    if (!session?.user) {
+      setCreatorPlan(null);
+      return;
+    }
+
+    supabase
+      .from("creators")
+      .select("plan")
+      .eq("user_id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        setCreatorPlan((data?.plan as CreatorPlan) ?? null);
+      });
+  }, [session?.user?.id]);
 
   // ---- Navigation guard -----------------------------------------------------
 
@@ -107,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         user: session?.user ?? null,
         isLoading,
+        creatorPlan,
         signInWithEmail,
         signUpWithEmail,
         signOut,
