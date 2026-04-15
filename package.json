@@ -23,6 +23,9 @@
   "pnpm": {
     "overrides": {
       "@types/react": "^18.3.0"
+    },
+    "patchedDependencies": {
+      "expo-dev-menu@4.5.8": "patches/expo-dev-menu@4.5.8.patch"
     }
   }
 }
