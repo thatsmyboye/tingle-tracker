@@ -3,6 +3,8 @@
 // All calls are server-side only (YOUTUBE_DATA_API_KEY is never public).
 // =============================================================================
 
+export type { TimedTranscriptSegment } from "@tingle/types";
+
 /** Regex patterns for extracting a YouTube video ID from various URL forms */
 const VIDEO_ID_PATTERNS = [
   /(?:youtube\.com\/watch\?(?:.*&)?v=)([\w-]{11})/,
@@ -134,6 +136,65 @@ export async function fetchYouTubeMetadata(
 
 // =============================================================================
 // YouTube Captions / Transcript
+// =============================================================================
+
+// =============================================================================
+// Timed transcript (preserves per-segment timestamps)
+// =============================================================================
+
+import type { TimedTranscriptSegment } from "@tingle/types";
+
+/** Decode common XML/HTML entities in a caption text node */
+function decodeEntities(raw: string): string {
+  return raw
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Fetch timed caption segments for a YouTube video.
+ * Parses the srv3 XML format preserving per-phrase start/duration timestamps.
+ * Returns null if captions are unavailable or the request fails.
+ * Must be called server-side only.
+ */
+export async function fetchYouTubeTimedTranscript(
+  videoId: string
+): Promise<TimedTranscriptSegment[] | null> {
+  try {
+    const url = `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=srv3`;
+    const res = await fetch(url, { next: { revalidate: 86400 } });
+    if (!res.ok) return null;
+    const xml = await res.text();
+    if (!xml || xml.trim() === "") return null;
+
+    // srv3 format: <p t="500" d="2100">caption text</p>
+    // `t` = start in ms, `d` = duration in ms
+    const segments: TimedTranscriptSegment[] = [];
+    const pTagRe = /<p[^>]*\bt="(\d+)"[^>]*\bd="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+    let match: RegExpExecArray | null;
+    while ((match = pTagRe.exec(xml)) !== null) {
+      const text = decodeEntities(match[3].replace(/<[^>]+>/g, " "));
+      if (!text) continue;
+      segments.push({
+        text,
+        start_ms: parseInt(match[1], 10),
+        duration_ms: parseInt(match[2], 10),
+      });
+    }
+
+    return segments.length > 0 ? segments : null;
+  } catch {
+    return null;
+  }
+}
+
+// =============================================================================
+// Plain-text transcript (strips all timing — kept for content.process)
 // =============================================================================
 
 /**

@@ -118,6 +118,8 @@ export interface InsightsCache {
   status: InsightStatus;
   /** Structured report JSON from Claude */
   report: InsightReport | null;
+  /** Sparse predicted heatmap from audio.analyze — only notable peaks (intensity >= 3) */
+  predicted_heatmap: PredictedHeatmapBucket[] | null;
   error_message: string | null;
   generated_at: string | null;
   created_at: string;
@@ -153,6 +155,31 @@ export interface UserTriggerAffinityRow {
 }
 
 // ---- AI / LLM types ---------------------------------------------------------
+
+// ---- YouTube utilities ------------------------------------------------------
+
+/** A single timed caption segment from YouTube's timedtext API */
+export interface TimedTranscriptSegment {
+  text: string;
+  /** Start time in milliseconds from video start */
+  start_ms: number;
+  /** Duration in milliseconds */
+  duration_ms: number;
+}
+
+/** One 30-second bucket in the audio-analysis predicted heatmap (sparse — only notable peaks) */
+export interface PredictedHeatmapBucket {
+  bucket_start_ms: number;
+  bucket_end_ms: number;
+  /** Predicted tingle intensity 1.0–5.0 */
+  predicted_intensity: number;
+  /** Claude confidence 0–1 */
+  confidence: number;
+  /** Trigger slugs that dominate this window */
+  dominant_trigger_slugs: string[];
+  /** Extensible: "transcript_analysis" now, "audio_features" once a Python worker is wired up */
+  source: "transcript_analysis" | "audio_features";
+}
 
 /** Shape of the JSON stored in insights_cache.report */
 export interface InsightReport {

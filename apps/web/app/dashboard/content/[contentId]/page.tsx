@@ -6,7 +6,7 @@ import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
 import { useAuth } from "@/hooks/useAuth";
 import { HeatmapChart } from "@/components/HeatmapChart";
-import type { ContentTingleHeatmapRow, InsightReport } from "@tingle/types";
+import type { ContentTingleHeatmapRow, InsightReport, PredictedHeatmapBucket } from "@tingle/types";
 
 // =============================================================================
 // /dashboard/content/[contentId] — Per-video heatmap + trigger analysis
@@ -31,6 +31,7 @@ interface InsightsCacheRow {
   content_id: string;
   status: "pending" | "generating" | "ready" | "error";
   report: InsightReport | null;
+  predicted_heatmap: PredictedHeatmapBucket[] | null;
   error_message: string | null;
   generated_at: string | null;
 }
@@ -304,7 +305,12 @@ export default function ContentDetailPage({
       {/* Heatmap */}
       <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
         <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">Tingle Heatmap</h2>
-        <HeatmapChart buckets={heatmap} durationSeconds={content.duration_seconds} />
+        <HeatmapChart
+          buckets={heatmap}
+          durationSeconds={content.duration_seconds}
+          predictedBuckets={insights?.predicted_heatmap ?? []}
+          realTingleTotal={totalTingles}
+        />
       </section>
 
       {/* Trigger analysis */}
