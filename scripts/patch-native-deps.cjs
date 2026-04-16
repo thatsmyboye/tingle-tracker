@@ -84,6 +84,13 @@
  *   add a direct import from 'react-native/Libraries/Types/CodegenTypes', and
  *   strip the `CT.` qualifier from all usages throughout each spec file.
  *   All fabric spec files in react-native-screens@4.x use this CT pattern.
+ *
+ * Bug D — DirectEventHandler<T> | null union on event handler props:
+ *   RN 0.74 Codegen cannot handle a TSUnionType as an event prop type.
+ *   When it encounters `DirectEventHandler<T> | null`, it tries to extract
+ *   the event type name from the union (which has no name) and aborts:
+ *   "typeAnnotation of event doesn't have a name".
+ *   Fix: strip the ` | null` suffix so the prop is a plain DirectEventHandler.
  */
 
 'use strict';
@@ -334,22 +341,44 @@ if (!rnRoot) {
 const RN_SCREENS_READONLY_EMPTY =
   /(?:[ \t]*\/\/\s*eslint-disable(?:-next-line)?\s[^\n]*\n)?(\s*(?:export\s+)?type\s+\w+\s*=\s*)Readonly<\{\}>;/g;
 
-// Regex for Bug C: removes `CodegenTypes as CT` from the react-native import
-// while preserving the remaining named imports (captured in group 1).
-// Matches only when CT is the first named import (always the case in 4.24.0).
+// Regex for Bug C (single-line import form):
+//   import type { CodegenTypes as CT, ViewProps } from 'react-native';
+// Captures the non-CT named imports in group 1.
+// Idempotent: after replacement, `CodegenTypes as CT` is gone so re-run is a no-op.
 const RN_SCREENS_CT_IMPORT =
   /^import type \{ CodegenTypes as CT, ([^}]+)\} from 'react-native';?$/m;
 
-// Replacement: keep the non-CT types in the react-native import and add a
-// blanket direct import from CodegenTypes so all bare type names resolve.
+// Replacement: keep the non-CT types and add a direct CodegenTypes import.
 const RN_SCREENS_CT_IMPORT_FIXED =
   "import type { $1} from 'react-native';\n" +
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+
+// Regex for Bug C (multi-line import form):
+//   import type {
+//     CodegenTypes as CT,
+//     ViewProps,
+//     ...
+//   } from 'react-native';
+// Group 1 = the CT line ("\n  CodegenTypes as CT,"), group 2 = remaining lines.
+// Atomic replacement is idempotent: second run finds no CT line → no match.
+const RN_SCREENS_CT_IMPORT_ML =
+  /import type \{(\s*\n[ \t]+CodegenTypes as CT,)([\s\S]*?)\} from 'react-native';?/;
+
+const RN_SCREENS_CT_IMPORT_ML_FIXED =
+  "import type {$2} from 'react-native';\n" +
   "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
 
 // Regex for Bug C: strips the `CT.` qualifier from any CodegenTypes usage.
 // The `g` flag replaces every occurrence in a single pass.
 const RN_SCREENS_CT_PREFIX =
   /\bCT\.(WithDefault|DirectEventHandler|BubblingEventHandler|Float|Int32|Double)\b/g;
+
+// Regex for Bug D: strips the ` | null` suffix from event handler prop types.
+// RN 0.74 Codegen cannot process a TSUnionType (DirectEventHandler<T> | null)
+// as an event prop — it must be a plain DirectEventHandler<T>.
+// Applied after Bug C so that `CT.DirectEventHandler` is already bare.
+const RN_SCREENS_EVENT_NULL_UNION =
+  /\b(DirectEventHandler|BubblingEventHandler)(<[^>]+>)\s*\|\s*null/g;
 
 const rnScreensRoots = findAllPackageRoots('react-native-screens@');
 if (rnScreensRoots.length === 0) {
@@ -373,26 +402,36 @@ if (rnScreensRoots.length === 0) {
 
     for (const relFile of bugAFiles) {
       patchFile(path.join(fabricDir, relFile), [
-        // Bug A: Readonly<{}> → null (robust regex, handles comment variations).
-        [RN_SCREENS_READONLY_EMPTY, '$1null;'],
-        // Bug C: remove CT namespace alias, add direct CodegenTypes import.
+        // Bug A: Readonly<{}> → {} (bare empty object literal that Codegen
+        // recognises as an empty struct; `null` via type alias also fails).
+        [RN_SCREENS_READONLY_EMPTY, '$1{};'],
+        // Bug C (single-line import): remove CT alias, add direct CodegenTypes.
         [RN_SCREENS_CT_IMPORT, RN_SCREENS_CT_IMPORT_FIXED],
+        // Bug C (multi-line import): atomic replace — idempotent on re-run.
+        [RN_SCREENS_CT_IMPORT_ML, RN_SCREENS_CT_IMPORT_ML_FIXED],
         // Bug C: strip CT. qualifier from all CodegenTypes usages.
         [RN_SCREENS_CT_PREFIX, '$1'],
+        // Bug D: strip " | null" from DirectEventHandler / BubblingEventHandler
+        // prop types — Codegen can't handle a union type as an event prop.
+        [RN_SCREENS_EVENT_NULL_UNION, '$1$2'],
       ]);
     }
 
     // ── Bug B: exported string-union type alias in CT.WithDefault ─────────────
 
-    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes + Bug C
+    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes + Bugs C/D
     patchFile(
       path.join(fabricDir, 'ScreenStackHeaderSubviewNativeComponent.ts'),
       [
         ['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes ='],
-        // Bug C: remove CT namespace alias, add direct CodegenTypes import.
+        // Bug C (single-line import): remove CT alias, add direct CodegenTypes.
         [RN_SCREENS_CT_IMPORT, RN_SCREENS_CT_IMPORT_FIXED],
+        // Bug C (multi-line import): atomic replace — idempotent on re-run.
+        [RN_SCREENS_CT_IMPORT_ML, RN_SCREENS_CT_IMPORT_ML_FIXED],
         // Bug C: strip CT. qualifier from all CodegenTypes usages.
         [RN_SCREENS_CT_PREFIX, '$1'],
+        // Bug D: strip " | null" from event handler union types.
+        [RN_SCREENS_EVENT_NULL_UNION, '$1$2'],
       ]
     );
 
