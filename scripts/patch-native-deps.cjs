@@ -74,6 +74,16 @@
  *       `export type HeaderSubviewTypes =` → `type HeaderSubviewTypes =`
  *   17. src/fabric/tabs/TabsScreenNativeComponent.ts
  *       `export type IconType =` → `type IconType =`
+ *
+ * Bug C — CT namespace alias for CodegenTypes props:
+ *   RN 0.74 Codegen cannot resolve qualified type references such as
+ *   CT.WithDefault<boolean, true> (where CT = CodegenTypes namespace alias).
+ *   The TypeScript resolver returns `undefined` for every prop that uses CT.*,
+ *   producing "Unknown prop type for '…': 'undefined'" at build time.
+ *   Fix: remove the `CodegenTypes as CT` alias from the react-native import,
+ *   add a direct import from 'react-native/Libraries/Types/CodegenTypes', and
+ *   strip the `CT.` qualifier from all usages throughout each spec file.
+ *   All fabric spec files in react-native-screens@4.x use this CT pattern.
  */
 
 'use strict';
@@ -324,6 +334,23 @@ if (!rnRoot) {
 const RN_SCREENS_READONLY_EMPTY =
   /(?:[ \t]*\/\/\s*eslint-disable(?:-next-line)?\s[^\n]*\n)?(\s*(?:export\s+)?type\s+\w+\s*=\s*)Readonly<\{\}>;/g;
 
+// Regex for Bug C: removes `CodegenTypes as CT` from the react-native import
+// while preserving the remaining named imports (captured in group 1).
+// Matches only when CT is the first named import (always the case in 4.24.0).
+const RN_SCREENS_CT_IMPORT =
+  /^import type \{ CodegenTypes as CT, ([^}]+)\} from 'react-native';?$/m;
+
+// Replacement: keep the non-CT types in the react-native import and add a
+// blanket direct import from CodegenTypes so all bare type names resolve.
+const RN_SCREENS_CT_IMPORT_FIXED =
+  "import type { $1} from 'react-native';\n" +
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+
+// Regex for Bug C: strips the `CT.` qualifier from any CodegenTypes usage.
+// The `g` flag replaces every occurrence in a single pass.
+const RN_SCREENS_CT_PREFIX =
+  /\bCT\.(WithDefault|DirectEventHandler|BubblingEventHandler|Float|Int32|Double)\b/g;
+
 const rnScreensRoots = findAllPackageRoots('react-native-screens@');
 if (rnScreensRoots.length === 0) {
   console.log('[patch-native-deps] react-native-screens not found, skipping');
@@ -346,17 +373,27 @@ if (rnScreensRoots.length === 0) {
 
     for (const relFile of bugAFiles) {
       patchFile(path.join(fabricDir, relFile), [
-        // Primary: regex replacement — robust against comment/whitespace variation.
+        // Bug A: Readonly<{}> → null (robust regex, handles comment variations).
         [RN_SCREENS_READONLY_EMPTY, '$1null;'],
+        // Bug C: remove CT namespace alias, add direct CodegenTypes import.
+        [RN_SCREENS_CT_IMPORT, RN_SCREENS_CT_IMPORT_FIXED],
+        // Bug C: strip CT. qualifier from all CodegenTypes usages.
+        [RN_SCREENS_CT_PREFIX, '$1'],
       ]);
     }
 
     // ── Bug B: exported string-union type alias in CT.WithDefault ─────────────
 
-    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes
+    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes + Bug C
     patchFile(
       path.join(fabricDir, 'ScreenStackHeaderSubviewNativeComponent.ts'),
-      [['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes =']]
+      [
+        ['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes ='],
+        // Bug C: remove CT namespace alias, add direct CodegenTypes import.
+        [RN_SCREENS_CT_IMPORT, RN_SCREENS_CT_IMPORT_FIXED],
+        // Bug C: strip CT. qualifier from all CodegenTypes usages.
+        [RN_SCREENS_CT_PREFIX, '$1'],
+      ]
     );
 
     // tabs/TabsScreenNativeComponent.ts — IconType
