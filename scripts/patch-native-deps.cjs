@@ -353,9 +353,14 @@ const RN_SCREENS_CT_IMPORT =
   /^import type \{ CodegenTypes as CT, ([^}]+)\} from 'react-native';?$/m;
 
 // Replacement: keep the non-CT types and add a direct CodegenTypes import.
+// Note: UnsafeMixed is intentionally excluded — it is recognised by Codegen
+// by name alone (not by import source), so no import is needed after stripping
+// the CT. prefix. Some files already import a local UnsafeMixed<T> generic
+// from './codegenUtils'; adding it again here would cause a duplicate-identifier
+// error (tabs/TabsScreenNativeComponent.ts).
 const RN_SCREENS_CT_IMPORT_FIXED =
   "import type { $1} from 'react-native';\n" +
-  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, UnsafeMixed, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
 
 // Regex for Bug C (multi-line import form):
 //   import type {
@@ -370,11 +375,13 @@ const RN_SCREENS_CT_IMPORT_ML =
 
 const RN_SCREENS_CT_IMPORT_ML_FIXED =
   "import type {$2} from 'react-native';\n" +
-  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, UnsafeMixed, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
 
 // Regex for Bug C: strips the `CT.` qualifier from any CodegenTypes usage.
 // The `g` flag replaces every occurrence in a single pass.
-// UnsafeMixed is used for opaque bar-button-item arrays in the header config.
+// UnsafeMixed is included so CT.UnsafeMixed[] (header config) is de-qualified;
+// it is NOT added to the CodegenTypes import because Codegen recognises it by
+// name alone and some files already have a local UnsafeMixed<T> from codegenUtils.
 const RN_SCREENS_CT_PREFIX =
   /\bCT\.(WithDefault|DirectEventHandler|BubblingEventHandler|Float|Int32|Double|UnsafeMixed)\b/g;
 
