@@ -1,0 +1,40 @@
+build:
+  name: Tingle Tracker
+  steps:
+    # Install workspace dependencies (pnpm install --frozen-lockfile).
+    # NOTE: pnpm@9.x used by EAS Build does not reliably run root-workspace
+    # lifecycle scripts with --frozen-lockfile, so we patch explicitly below.
+    - eas/install_node_modules
+
+    # Patch react-native-screens Fabric TypeScript spec files for RN 0.74
+    # Codegen compatibility (three classes of bugs fixed):
+    #   A. Readonly<{}> → {} — empty event payload type (Codegen resolves
+    #      Readonly<{}> as undefined; bare {} is an empty struct it understands).
+    #   B. export type T → type T — exported string-union aliases in
+    #      CT.WithDefault<T,…> are treated as external refs by Codegen.
+    #   C. CT.WithDefault / CT.DirectEventHandler → bare names — RN 0.74
+    #      Codegen can't resolve namespace-qualified CodegenTypes references.
+    #   D. DirectEventHandler<T> | null → DirectEventHandler<T> — union types
+    #      on event props cause "typeAnnotation of event doesn't have a name".
+    # Without this patch, Xcode Codegen aborts with errors such as:
+    #   Unknown prop type for "…": "undefined"
+    #   typeAnnotation of event doesn't have a name
+    # CWD on EAS Build is the monorepo root (/Users/expo/workingdir/build),
+    # so the path is relative to the repo root, not apps/mobile/.
+    - run:
+        name: Patch react-native-screens Fabric types for RN 0.74 Codegen
+        command: node scripts/patch-native-deps.cjs
+
+    # Generate native ios/ and android/ directories from the Expo config.
+    # Codegen also runs during pod install (triggered by Fastlane), so the
+    # patch above must happen before this step.
+    # Using pnpm exec instead of eas/prebuild (which calls npx internally)
+    # to avoid npm libnpmexec lock corruption on Node.js 24 (ECOMPROMISED).
+    - run:
+        name: Expo prebuild
+        command: cd apps/mobile && pnpm exec expo prebuild --clean --non-interactive
+
+    # Platform-aware: eas/run_fastlane is skipped on Android builds;
+    # eas/run_gradle is skipped on iOS builds.
+    - eas/run_fastlane
+    - eas/run_gradle
