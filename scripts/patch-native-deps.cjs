@@ -63,6 +63,11 @@
 const fs = require('fs');
 const path = require('path');
 
+// Resolve workspace root relative to THIS FILE so the script works when
+// invoked from any CWD — root postinstall, apps/mobile postinstall, or a
+// custom build step. (scripts/ lives directly in the workspace root.)
+const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+
 // ── Shared constants ────────────────────────────────────────────────────────
 
 // The RCTAppSetupUtils.h import block that appears in three expo-dev-menu .mm files
@@ -143,9 +148,9 @@ function findPackageRoot(pkgPrefix) {
 // starts with pkgPrefix.  pnpm can install the same package multiple times
 // under different peer-dep hashes; we must patch all of them.
 function findAllPackageRoots(pkgPrefix) {
-  const virtualStore = path.join(process.cwd(), 'node_modules', '.pnpm');
+  const virtualStore = path.join(WORKSPACE_ROOT, 'node_modules', '.pnpm');
   if (!fs.existsSync(virtualStore)) {
-    const flat = path.join(process.cwd(), 'node_modules', pkgPrefix.split('@')[0]);
+    const flat = path.join(WORKSPACE_ROOT, 'node_modules', pkgPrefix.split('@')[0]);
     return fs.existsSync(flat) ? [flat] : [];
   }
   const pkgName = pkgPrefix.split('@')[0];
@@ -176,14 +181,14 @@ function patchFile(filePath, replacements) {
   }
 
   if (!changed) {
-    console.log(`[patch-native-deps] already patched: ${path.relative(process.cwd(), filePath)}`);
+    console.log(`[patch-native-deps] already patched: ${path.relative(WORKSPACE_ROOT, filePath)}`);
     return;
   }
 
   // Unlink before writing to break the pnpm hardlink to the global store.
   fs.unlinkSync(filePath);
   fs.writeFileSync(filePath, content, 'utf8');
-  console.log(`[patch-native-deps] patched: ${path.relative(process.cwd(), filePath)}`);
+  console.log(`[patch-native-deps] patched: ${path.relative(WORKSPACE_ROOT, filePath)}`);
 }
 
 // ── expo-dev-menu patches ───────────────────────────────────────────────────
