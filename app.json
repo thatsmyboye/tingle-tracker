@@ -4,12 +4,34 @@
     "slug": "tingle-tracker",
     "owner": "thatsmyboye",
     "version": "1.0.0",
+    "scheme": "tingle-tracker",
+    "orientation": "portrait",
+    "icon": "./apps/mobile/assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./apps/mobile/assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
     "ios": {
-      "bundleIdentifier": "com.tingletracker.app"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.tingletracker.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./apps/mobile/assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0F"
+      },
       "package": "com.tingletracker.app"
     },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      "./apps/mobile/plugins/withFixRCTBridgeModule"
+    ],
     "extra": {
       "eas": {
         "projectId": "eb887393-5134-41b1-9b83-b0a56491c3bc"
