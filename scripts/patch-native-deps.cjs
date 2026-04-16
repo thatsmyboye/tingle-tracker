@@ -46,34 +46,17 @@
  *
  * Bug A — empty Readonly<{}> event payloads:
  *   RN 0.74 Codegen resolves Readonly<{}> as `undefined` (no-payload events
- *   must use `null`). Affected files:
- *   7.  src/fabric/ScreenStackHeaderConfigNativeComponent.ts
- *       `type OnAttachedEvent/OnDetachedEvent = Readonly<{}>` → `null`
- *   8.  src/fabric/ScreenNativeComponent.ts
- *       `type ScreenEvent = Readonly<{}>` → `null`
- *   9.  src/fabric/ModalScreenNativeComponent.ts
- *       `type ScreenEvent = Readonly<{}>` → `null`
- *   10. src/fabric/ScreenStackNativeComponent.ts
- *       `type FinishTransitioningEvent = Readonly<{}>` → `null`
- *   11. src/fabric/SearchBarNativeComponent.ts
- *       `export type SearchBarEvent = Readonly<{}>` → `null`
- *   12. src/fabric/gamma/SplitViewHostNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
- *   13. src/fabric/gamma/SplitViewScreenNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
- *   14. src/fabric/gamma/stack/StackScreenNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
- *   15. src/fabric/tabs/TabsScreenNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   must use a bare `{}` empty object literal that Codegen treats as an empty
+ *   struct; replacing with `null` via a type alias also fails).
+ *   Affected: any fabric spec with `type X = Readonly<{}>`.
  *
  * Bug B — exported string-union type alias in CT.WithDefault<T, ...>:
  *   RN 0.74 Codegen treats `export type T` as an external reference and
  *   fails to resolve it, returning `undefined`. Non-exported aliases work.
  *   Fix: remove `export` so Codegen resolves the alias inline.
- *   16. src/fabric/ScreenStackHeaderSubviewNativeComponent.ts
- *       `export type HeaderSubviewTypes =` → `type HeaderSubviewTypes =`
- *   17. src/fabric/tabs/TabsScreenNativeComponent.ts
- *       `export type IconType =` → `type IconType =`
+ *   Affected files (specific aliases):
+ *     ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes
+ *     tabs/TabsScreenNativeComponent.ts          — IconType
  *
  * Bug C — CT namespace alias for CodegenTypes props:
  *   RN 0.74 Codegen cannot resolve qualified type references such as
@@ -83,7 +66,7 @@
  *   Fix: remove the `CodegenTypes as CT` alias from the react-native import,
  *   add a direct import from 'react-native/Libraries/Types/CodegenTypes', and
  *   strip the `CT.` qualifier from all usages throughout each spec file.
- *   All fabric spec files in react-native-screens@4.x use this CT pattern.
+ *   Affected: all fabric spec files in react-native-screens@4.x.
  *
  * Bug D — DirectEventHandler<T> | null union on event handler props:
  *   RN 0.74 Codegen cannot handle a TSUnionType as an event prop type.
@@ -91,6 +74,10 @@
  *   the event type name from the union (which has no name) and aborts:
  *   "typeAnnotation of event doesn't have a name".
  *   Fix: strip the ` | null` suffix so the prop is a plain DirectEventHandler.
+ *
+ * All four patches (A–D) are applied to every *NativeComponent.ts file found
+ * recursively under src/fabric/ so that newly-added spec files are covered
+ * automatically without updating this list.
  */
 
 'use strict';
@@ -194,6 +181,23 @@ function findAllPackageRoots(pkgPrefix) {
     if (entry.startsWith(pkgPrefix)) {
       const candidate = path.join(virtualStore, entry, 'node_modules', pkgName);
       if (fs.existsSync(candidate)) results.push(candidate);
+    }
+  }
+  return results;
+}
+
+// Recursively collects every *NativeComponent.ts file under `dir`.
+// Used to patch all react-native-screens fabric spec files in one pass
+// without maintaining a hand-curated list that would miss new files.
+function findFabricSpecFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const results = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findFabricSpecFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('NativeComponent.ts')) {
+      results.push(fullPath);
     }
   }
   return results;
@@ -388,21 +392,19 @@ if (rnScreensRoots.length === 0) {
   for (const rnScreensRoot of rnScreensRoots) {
     const fabricDir = path.join(rnScreensRoot, 'src', 'fabric');
 
-    // ── Bug A: Readonly<{}> → null for all affected fabric files ─────────────
-    const bugAFiles = [
-      'ScreenStackHeaderConfigNativeComponent.ts',
-      'ScreenNativeComponent.ts',
-      'ModalScreenNativeComponent.ts',
-      'ScreenStackNativeComponent.ts',
-      'SearchBarNativeComponent.ts',
-      path.join('gamma', 'SplitViewHostNativeComponent.ts'),
-      path.join('gamma', 'SplitViewScreenNativeComponent.ts'),
-      path.join('gamma', 'stack', 'StackScreenNativeComponent.ts'),
-      path.join('tabs', 'TabsScreenNativeComponent.ts'),
-    ];
+    // ── Bugs A / C / D: apply to every *NativeComponent.ts under src/fabric/ ──
+    //
+    // Using findFabricSpecFiles() instead of a hand-curated list so that any
+    // newly-added spec files are covered automatically.  Each patch is a no-op
+    // for files that don't contain the target pattern, so there is no risk of
+    // accidentally corrupting files that don't need the fix.
+    const allFabricSpecFiles = findFabricSpecFiles(fabricDir);
+    if (allFabricSpecFiles.length === 0) {
+      console.log(`[patch-native-deps] no NativeComponent.ts files found under ${fabricDir}`);
+    }
 
-    for (const relFile of bugAFiles) {
-      patchFile(path.join(fabricDir, relFile), [
+    for (const filePath of allFabricSpecFiles) {
+      patchFile(filePath, [
         // Bug A: Readonly<{}> → {} (bare empty object literal that Codegen
         // recognises as an empty struct; `null` via type alias also fails).
         [RN_SCREENS_READONLY_EMPTY, '$1{};'],
@@ -419,24 +421,13 @@ if (rnScreensRoots.length === 0) {
     }
 
     // ── Bug B: exported string-union type alias in CT.WithDefault ─────────────
+    // Applied after the main loop (Bugs A/C/D already handled above).
 
-    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes + Bugs C/D
     patchFile(
       path.join(fabricDir, 'ScreenStackHeaderSubviewNativeComponent.ts'),
-      [
-        ['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes ='],
-        // Bug C (single-line import): remove CT alias, add direct CodegenTypes.
-        [RN_SCREENS_CT_IMPORT, RN_SCREENS_CT_IMPORT_FIXED],
-        // Bug C (multi-line import): atomic replace — idempotent on re-run.
-        [RN_SCREENS_CT_IMPORT_ML, RN_SCREENS_CT_IMPORT_ML_FIXED],
-        // Bug C: strip CT. qualifier from all CodegenTypes usages.
-        [RN_SCREENS_CT_PREFIX, '$1'],
-        // Bug D: strip " | null" from event handler union types.
-        [RN_SCREENS_EVENT_NULL_UNION, '$1$2'],
-      ]
+      [['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes =']]
     );
 
-    // tabs/TabsScreenNativeComponent.ts — IconType
     patchFile(
       path.join(fabricDir, 'tabs', 'TabsScreenNativeComponent.ts'),
       [['export type IconType = ', 'type IconType = ']]
