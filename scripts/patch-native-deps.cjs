@@ -351,7 +351,7 @@ const RN_SCREENS_CT_IMPORT =
 // Replacement: keep the non-CT types and add a direct CodegenTypes import.
 const RN_SCREENS_CT_IMPORT_FIXED =
   "import type { $1} from 'react-native';\n" +
-  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, UnsafeMixed, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
 
 // Regex for Bug C (multi-line import form):
 //   import type {
@@ -366,12 +366,13 @@ const RN_SCREENS_CT_IMPORT_ML =
 
 const RN_SCREENS_CT_IMPORT_ML_FIXED =
   "import type {$2} from 'react-native';\n" +
-  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, UnsafeMixed, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
 
 // Regex for Bug C: strips the `CT.` qualifier from any CodegenTypes usage.
 // The `g` flag replaces every occurrence in a single pass.
+// UnsafeMixed is used for opaque bar-button-item arrays in the header config.
 const RN_SCREENS_CT_PREFIX =
-  /\bCT\.(WithDefault|DirectEventHandler|BubblingEventHandler|Float|Int32|Double)\b/g;
+  /\bCT\.(WithDefault|DirectEventHandler|BubblingEventHandler|Float|Int32|Double|UnsafeMixed)\b/g;
 
 // Regex for Bug D: strips the ` | null` suffix from event handler prop types.
 // RN 0.74 Codegen cannot process a TSUnionType (DirectEventHandler<T> | null)
