@@ -192,7 +192,14 @@ function patchFile(filePath, replacements) {
   let changed = false;
 
   for (const [from, to] of replacements) {
-    if (content.includes(from)) {
+    if (from instanceof RegExp) {
+      // RegExp replacement — compare before/after to detect a real change.
+      const next = content.replace(from, to);
+      if (next !== content) {
+        content = next;
+        changed = true;
+      }
+    } else if (content.includes(from)) {
       content = content.split(from).join(to);
       changed = true;
     }
@@ -295,6 +302,28 @@ if (!rnRoot) {
 // this script works regardless of whether pnpm resolves 3.37.0 or 4.24.0.
 // pnpm can also install the same package multiple times under different
 // peer-dep hashes; findAllPackageRoots returns every virtual-store instance.
+//
+// Bug A — empty Readonly<{}> event payloads:
+//   The exact string forms in the npm-published source can vary across point
+//   releases (trailing spaces, CRLF vs LF, missing eslint-disable comment on
+//   one of the two lines, etc.).  Using exact string matching has proven
+//   fragile, so we now use a RegExp that:
+//     • optionally strips a preceding eslint-disable-next-line comment
+//     • matches the type alias regardless of surrounding whitespace
+//     • works with/without the `export` keyword (SearchBarEvent keeps export)
+//
+// Bug B — exported string-union type alias in CT.WithDefault:
+//   RN 0.74 Codegen treats `export type T` as an external reference and
+//   returns `undefined` instead of resolving the string union inline.
+//   Fix: remove `export` so the alias is resolved as a module-local type.
+//   This only affects a small number of identifiers; exact string is fine.
+
+// Regex for Bug A: matches any `type X = Readonly<{}>` (with or without an
+// eslint-disable-next-line comment on the preceding line, with or without
+// `export`).  The `g` flag replaces every occurrence in a single pass.
+const RN_SCREENS_READONLY_EMPTY =
+  /(?:[ \t]*\/\/\s*eslint-disable(?:-next-line)?\s[^\n]*\n)?(\s*(?:export\s+)?type\s+\w+\s*=\s*)Readonly<\{\}>;/g;
+
 const rnScreensRoots = findAllPackageRoots('react-native-screens@');
 if (rnScreensRoots.length === 0) {
   console.log('[patch-native-deps] react-native-screens not found, skipping');
@@ -302,74 +331,27 @@ if (rnScreensRoots.length === 0) {
   for (const rnScreensRoot of rnScreensRoots) {
     const fabricDir = path.join(rnScreensRoot, 'src', 'fabric');
 
-    // ScreenStackHeaderConfigNativeComponent.ts — OnAttachedEvent, OnDetachedEvent
-    patchFile(
-      path.join(fabricDir, 'ScreenStackHeaderConfigNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnAttachedEvent = Readonly<{}>;\n// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnDetachedEvent = Readonly<{}>;',
-          'type OnAttachedEvent = null;\ntype OnDetachedEvent = null;',
-        ],
-      ]
-    );
+    // ── Bug A: Readonly<{}> → null for all affected fabric files ─────────────
+    const bugAFiles = [
+      'ScreenStackHeaderConfigNativeComponent.ts',
+      'ScreenNativeComponent.ts',
+      'ModalScreenNativeComponent.ts',
+      'ScreenStackNativeComponent.ts',
+      'SearchBarNativeComponent.ts',
+      path.join('gamma', 'SplitViewHostNativeComponent.ts'),
+      path.join('gamma', 'SplitViewScreenNativeComponent.ts'),
+      path.join('gamma', 'stack', 'StackScreenNativeComponent.ts'),
+      path.join('tabs', 'TabsScreenNativeComponent.ts'),
+    ];
 
-    // ScreenNativeComponent.ts — ScreenEvent
-    patchFile(
-      path.join(fabricDir, 'ScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
-          'type ScreenEvent = null;',
-        ],
-      ]
-    );
-
-    // ModalScreenNativeComponent.ts — ScreenEvent (identical pattern)
-    patchFile(
-      path.join(fabricDir, 'ModalScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
-          'type ScreenEvent = null;',
-        ],
-      ]
-    );
-
-    // ScreenStackNativeComponent.ts — FinishTransitioningEvent
-    patchFile(
-      path.join(fabricDir, 'ScreenStackNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype FinishTransitioningEvent = Readonly<{}>;',
-          'type FinishTransitioningEvent = null;',
-        ],
-      ]
-    );
-
-    // SearchBarNativeComponent.ts — SearchBarEvent (exported)
-    // 4.x has a per-line eslint-disable comment; 3.37.0 only has a file-top
-    // /* eslint-disable */ so we need both patterns (tried in order; whichever
-    // matches first wins — after replacement the other won't match anyway).
-    patchFile(
-      path.join(fabricDir, 'SearchBarNativeComponent.ts'),
-      [
-        // 4.x format: per-line eslint-disable comment present
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\nexport type SearchBarEvent = Readonly<{}>;',
-          'export type SearchBarEvent = null;',
-        ],
-        // 3.37.0 format: no per-line comment (file has /* eslint-disable */ at top)
-        [
-          'export type SearchBarEvent = Readonly<{}>;',
-          'export type SearchBarEvent = null;',
-        ],
-      ]
-    );
+    for (const relFile of bugAFiles) {
+      patchFile(path.join(fabricDir, relFile), [
+        // Primary: regex replacement — robust against comment/whitespace variation.
+        [RN_SCREENS_READONLY_EMPTY, '$1null;'],
+      ]);
+    }
 
     // ── Bug B: exported string-union type alias in CT.WithDefault ─────────────
-    // RN 0.74 Codegen treats `export type T` as an external reference and
-    // returns `undefined` instead of resolving the string union inline.
-    // Fix: remove `export` so the alias is resolved as a module-local type.
 
     // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes
     patchFile(
@@ -377,53 +359,10 @@ if (rnScreensRoots.length === 0) {
       [['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes =']]
     );
 
-    // ── Subdirectory fabric files ─────────────────────────────────────────────
-
-    // gamma/SplitViewHostNativeComponent.ts — GenericEmptyEvent
-    patchFile(
-      path.join(fabricDir, 'gamma', 'SplitViewHostNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-      ]
-    );
-
-    // gamma/SplitViewScreenNativeComponent.ts — GenericEmptyEvent
-    patchFile(
-      path.join(fabricDir, 'gamma', 'SplitViewScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-      ]
-    );
-
-    // gamma/stack/StackScreenNativeComponent.ts — GenericEmptyEvent
-    patchFile(
-      path.join(fabricDir, 'gamma', 'stack', 'StackScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-      ]
-    );
-
-    // tabs/TabsScreenNativeComponent.ts — GenericEmptyEvent + IconType (Bug A + B)
+    // tabs/TabsScreenNativeComponent.ts — IconType
     patchFile(
       path.join(fabricDir, 'tabs', 'TabsScreenNativeComponent.ts'),
-      [
-        // Bug A: empty event payload
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-        // Bug B: exported string-union in CT.WithDefault
-        ['export type IconType = ', 'type IconType = '],
-      ]
+      [['export type IconType = ', 'type IconType = ']]
     );
   }
 }
