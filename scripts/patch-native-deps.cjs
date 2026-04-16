@@ -46,34 +46,38 @@
  *
  * Bug A — empty Readonly<{}> event payloads:
  *   RN 0.74 Codegen resolves Readonly<{}> as `undefined` (no-payload events
- *   must use `null`). Affected files:
- *   7.  src/fabric/ScreenStackHeaderConfigNativeComponent.ts
- *       `type OnAttachedEvent/OnDetachedEvent = Readonly<{}>` → `null`
- *   8.  src/fabric/ScreenNativeComponent.ts
- *       `type ScreenEvent = Readonly<{}>` → `null`
- *   9.  src/fabric/ModalScreenNativeComponent.ts
- *       `type ScreenEvent = Readonly<{}>` → `null`
- *   10. src/fabric/ScreenStackNativeComponent.ts
- *       `type FinishTransitioningEvent = Readonly<{}>` → `null`
- *   11. src/fabric/SearchBarNativeComponent.ts
- *       `export type SearchBarEvent = Readonly<{}>` → `null`
- *   12. src/fabric/gamma/SplitViewHostNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
- *   13. src/fabric/gamma/SplitViewScreenNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
- *   14. src/fabric/gamma/stack/StackScreenNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
- *   15. src/fabric/tabs/TabsScreenNativeComponent.ts
- *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   must use a bare `{}` empty object literal that Codegen treats as an empty
+ *   struct; replacing with `null` via a type alias also fails).
+ *   Affected: any fabric spec with `type X = Readonly<{}>`.
  *
  * Bug B — exported string-union type alias in CT.WithDefault<T, ...>:
  *   RN 0.74 Codegen treats `export type T` as an external reference and
  *   fails to resolve it, returning `undefined`. Non-exported aliases work.
  *   Fix: remove `export` so Codegen resolves the alias inline.
- *   16. src/fabric/ScreenStackHeaderSubviewNativeComponent.ts
- *       `export type HeaderSubviewTypes =` → `type HeaderSubviewTypes =`
- *   17. src/fabric/tabs/TabsScreenNativeComponent.ts
- *       `export type IconType =` → `type IconType =`
+ *   Affected files (specific aliases):
+ *     ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes
+ *     tabs/TabsScreenNativeComponent.ts          — IconType
+ *
+ * Bug C — CT namespace alias for CodegenTypes props:
+ *   RN 0.74 Codegen cannot resolve qualified type references such as
+ *   CT.WithDefault<boolean, true> (where CT = CodegenTypes namespace alias).
+ *   The TypeScript resolver returns `undefined` for every prop that uses CT.*,
+ *   producing "Unknown prop type for '…': 'undefined'" at build time.
+ *   Fix: remove the `CodegenTypes as CT` alias from the react-native import,
+ *   add a direct import from 'react-native/Libraries/Types/CodegenTypes', and
+ *   strip the `CT.` qualifier from all usages throughout each spec file.
+ *   Affected: all fabric spec files in react-native-screens@4.x.
+ *
+ * Bug D — DirectEventHandler<T> | null union on event handler props:
+ *   RN 0.74 Codegen cannot handle a TSUnionType as an event prop type.
+ *   When it encounters `DirectEventHandler<T> | null`, it tries to extract
+ *   the event type name from the union (which has no name) and aborts:
+ *   "typeAnnotation of event doesn't have a name".
+ *   Fix: strip the ` | null` suffix so the prop is a plain DirectEventHandler.
+ *
+ * All four patches (A–D) are applied to every *NativeComponent.ts file found
+ * recursively under src/fabric/ so that newly-added spec files are covered
+ * automatically without updating this list.
  */
 
 'use strict';
@@ -182,6 +186,23 @@ function findAllPackageRoots(pkgPrefix) {
   return results;
 }
 
+// Recursively collects every *NativeComponent.ts file under `dir`.
+// Used to patch all react-native-screens fabric spec files in one pass
+// without maintaining a hand-curated list that would miss new files.
+function findFabricSpecFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const results = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findFabricSpecFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('NativeComponent.ts')) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
 function patchFile(filePath, replacements) {
   if (!fs.existsSync(filePath)) {
     console.log(`[patch-native-deps] not found, skipping: ${filePath}`);
@@ -192,7 +213,14 @@ function patchFile(filePath, replacements) {
   let changed = false;
 
   for (const [from, to] of replacements) {
-    if (content.includes(from)) {
+    if (from instanceof RegExp) {
+      // RegExp replacement — compare before/after to detect a real change.
+      const next = content.replace(from, to);
+      if (next !== content) {
+        content = next;
+        changed = true;
+      }
+    } else if (content.includes(from)) {
       content = content.split(from).join(to);
       changed = true;
     }
@@ -295,6 +323,75 @@ if (!rnRoot) {
 // this script works regardless of whether pnpm resolves 3.37.0 or 4.24.0.
 // pnpm can also install the same package multiple times under different
 // peer-dep hashes; findAllPackageRoots returns every virtual-store instance.
+//
+// Bug A — empty Readonly<{}> event payloads:
+//   The exact string forms in the npm-published source can vary across point
+//   releases (trailing spaces, CRLF vs LF, missing eslint-disable comment on
+//   one of the two lines, etc.).  Using exact string matching has proven
+//   fragile, so we now use a RegExp that:
+//     • optionally strips a preceding eslint-disable-next-line comment
+//     • matches the type alias regardless of surrounding whitespace
+//     • works with/without the `export` keyword (SearchBarEvent keeps export)
+//
+// Bug B — exported string-union type alias in CT.WithDefault:
+//   RN 0.74 Codegen treats `export type T` as an external reference and
+//   returns `undefined` instead of resolving the string union inline.
+//   Fix: remove `export` so the alias is resolved as a module-local type.
+//   This only affects a small number of identifiers; exact string is fine.
+
+// Regex for Bug A: matches any `type X = Readonly<{}>` (with or without an
+// eslint-disable-next-line comment on the preceding line, with or without
+// `export`).  The `g` flag replaces every occurrence in a single pass.
+const RN_SCREENS_READONLY_EMPTY =
+  /(?:[ \t]*\/\/\s*eslint-disable(?:-next-line)?\s[^\n]*\n)?(\s*(?:export\s+)?type\s+\w+\s*=\s*)Readonly<\{\}>;/g;
+
+// Regex for Bug C (single-line import form):
+//   import type { CodegenTypes as CT, ViewProps } from 'react-native';
+// Captures the non-CT named imports in group 1.
+// Idempotent: after replacement, `CodegenTypes as CT` is gone so re-run is a no-op.
+const RN_SCREENS_CT_IMPORT =
+  /^import type \{ CodegenTypes as CT, ([^}]+)\} from 'react-native';?$/m;
+
+// Replacement: keep the non-CT types and add a direct CodegenTypes import.
+// Note: UnsafeMixed is intentionally excluded — it is recognised by Codegen
+// by name alone (not by import source), so no import is needed after stripping
+// the CT. prefix. Some files already import a local UnsafeMixed<T> generic
+// from './codegenUtils'; adding it again here would cause a duplicate-identifier
+// error (tabs/TabsScreenNativeComponent.ts).
+const RN_SCREENS_CT_IMPORT_FIXED =
+  "import type { $1} from 'react-native';\n" +
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+
+// Regex for Bug C (multi-line import form):
+//   import type {
+//     CodegenTypes as CT,
+//     ViewProps,
+//     ...
+//   } from 'react-native';
+// Group 1 = the CT line ("\n  CodegenTypes as CT,"), group 2 = remaining lines.
+// Atomic replacement is idempotent: second run finds no CT line → no match.
+const RN_SCREENS_CT_IMPORT_ML =
+  /import type \{(\s*\n[ \t]+CodegenTypes as CT,)([\s\S]*?)\} from 'react-native';?/;
+
+const RN_SCREENS_CT_IMPORT_ML_FIXED =
+  "import type {$2} from 'react-native';\n" +
+  "import type { BubblingEventHandler, DirectEventHandler, Double, Float, Int32, WithDefault } from 'react-native/Libraries/Types/CodegenTypes';";
+
+// Regex for Bug C: strips the `CT.` qualifier from any CodegenTypes usage.
+// The `g` flag replaces every occurrence in a single pass.
+// UnsafeMixed is included so CT.UnsafeMixed[] (header config) is de-qualified;
+// it is NOT added to the CodegenTypes import because Codegen recognises it by
+// name alone and some files already have a local UnsafeMixed<T> from codegenUtils.
+const RN_SCREENS_CT_PREFIX =
+  /\bCT\.(WithDefault|DirectEventHandler|BubblingEventHandler|Float|Int32|Double|UnsafeMixed)\b/g;
+
+// Regex for Bug D: strips the ` | null` suffix from event handler prop types.
+// RN 0.74 Codegen cannot process a TSUnionType (DirectEventHandler<T> | null)
+// as an event prop — it must be a plain DirectEventHandler<T>.
+// Applied after Bug C so that `CT.DirectEventHandler` is already bare.
+const RN_SCREENS_EVENT_NULL_UNION =
+  /\b(DirectEventHandler|BubblingEventHandler)(<[^>]+>)\s*\|\s*null/g;
+
 const rnScreensRoots = findAllPackageRoots('react-native-screens@');
 if (rnScreensRoots.length === 0) {
   console.log('[patch-native-deps] react-native-screens not found, skipping');
@@ -302,128 +399,45 @@ if (rnScreensRoots.length === 0) {
   for (const rnScreensRoot of rnScreensRoots) {
     const fabricDir = path.join(rnScreensRoot, 'src', 'fabric');
 
-    // ScreenStackHeaderConfigNativeComponent.ts — OnAttachedEvent, OnDetachedEvent
-    patchFile(
-      path.join(fabricDir, 'ScreenStackHeaderConfigNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnAttachedEvent = Readonly<{}>;\n// eslint-disable-next-line @typescript-eslint/ban-types\ntype OnDetachedEvent = Readonly<{}>;',
-          'type OnAttachedEvent = null;\ntype OnDetachedEvent = null;',
-        ],
-      ]
-    );
+    // ── Bugs A / C / D: apply to every *NativeComponent.ts under src/fabric/ ──
+    //
+    // Using findFabricSpecFiles() instead of a hand-curated list so that any
+    // newly-added spec files are covered automatically.  Each patch is a no-op
+    // for files that don't contain the target pattern, so there is no risk of
+    // accidentally corrupting files that don't need the fix.
+    const allFabricSpecFiles = findFabricSpecFiles(fabricDir);
+    if (allFabricSpecFiles.length === 0) {
+      console.log(`[patch-native-deps] no NativeComponent.ts files found under ${fabricDir}`);
+    }
 
-    // ScreenNativeComponent.ts — ScreenEvent
-    patchFile(
-      path.join(fabricDir, 'ScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
-          'type ScreenEvent = null;',
-        ],
-      ]
-    );
-
-    // ModalScreenNativeComponent.ts — ScreenEvent (identical pattern)
-    patchFile(
-      path.join(fabricDir, 'ModalScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype ScreenEvent = Readonly<{}>;',
-          'type ScreenEvent = null;',
-        ],
-      ]
-    );
-
-    // ScreenStackNativeComponent.ts — FinishTransitioningEvent
-    patchFile(
-      path.join(fabricDir, 'ScreenStackNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype FinishTransitioningEvent = Readonly<{}>;',
-          'type FinishTransitioningEvent = null;',
-        ],
-      ]
-    );
-
-    // SearchBarNativeComponent.ts — SearchBarEvent (exported)
-    // 4.x has a per-line eslint-disable comment; 3.37.0 only has a file-top
-    // /* eslint-disable */ so we need both patterns (tried in order; whichever
-    // matches first wins — after replacement the other won't match anyway).
-    patchFile(
-      path.join(fabricDir, 'SearchBarNativeComponent.ts'),
-      [
-        // 4.x format: per-line eslint-disable comment present
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\nexport type SearchBarEvent = Readonly<{}>;',
-          'export type SearchBarEvent = null;',
-        ],
-        // 3.37.0 format: no per-line comment (file has /* eslint-disable */ at top)
-        [
-          'export type SearchBarEvent = Readonly<{}>;',
-          'export type SearchBarEvent = null;',
-        ],
-      ]
-    );
+    for (const filePath of allFabricSpecFiles) {
+      patchFile(filePath, [
+        // Bug A: Readonly<{}> → {} (bare empty object literal that Codegen
+        // recognises as an empty struct; `null` via type alias also fails).
+        [RN_SCREENS_READONLY_EMPTY, '$1{};'],
+        // Bug C (single-line import): remove CT alias, add direct CodegenTypes.
+        [RN_SCREENS_CT_IMPORT, RN_SCREENS_CT_IMPORT_FIXED],
+        // Bug C (multi-line import): atomic replace — idempotent on re-run.
+        [RN_SCREENS_CT_IMPORT_ML, RN_SCREENS_CT_IMPORT_ML_FIXED],
+        // Bug C: strip CT. qualifier from all CodegenTypes usages.
+        [RN_SCREENS_CT_PREFIX, '$1'],
+        // Bug D: strip " | null" from DirectEventHandler / BubblingEventHandler
+        // prop types — Codegen can't handle a union type as an event prop.
+        [RN_SCREENS_EVENT_NULL_UNION, '$1$2'],
+      ]);
+    }
 
     // ── Bug B: exported string-union type alias in CT.WithDefault ─────────────
-    // RN 0.74 Codegen treats `export type T` as an external reference and
-    // returns `undefined` instead of resolving the string union inline.
-    // Fix: remove `export` so the alias is resolved as a module-local type.
+    // Applied after the main loop (Bugs A/C/D already handled above).
 
-    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes
     patchFile(
       path.join(fabricDir, 'ScreenStackHeaderSubviewNativeComponent.ts'),
       [['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes =']]
     );
 
-    // ── Subdirectory fabric files ─────────────────────────────────────────────
-
-    // gamma/SplitViewHostNativeComponent.ts — GenericEmptyEvent
-    patchFile(
-      path.join(fabricDir, 'gamma', 'SplitViewHostNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-      ]
-    );
-
-    // gamma/SplitViewScreenNativeComponent.ts — GenericEmptyEvent
-    patchFile(
-      path.join(fabricDir, 'gamma', 'SplitViewScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-      ]
-    );
-
-    // gamma/stack/StackScreenNativeComponent.ts — GenericEmptyEvent
-    patchFile(
-      path.join(fabricDir, 'gamma', 'stack', 'StackScreenNativeComponent.ts'),
-      [
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-      ]
-    );
-
-    // tabs/TabsScreenNativeComponent.ts — GenericEmptyEvent + IconType (Bug A + B)
     patchFile(
       path.join(fabricDir, 'tabs', 'TabsScreenNativeComponent.ts'),
-      [
-        // Bug A: empty event payload
-        [
-          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
-          'type GenericEmptyEvent = null;',
-        ],
-        // Bug B: exported string-union in CT.WithDefault
-        ['export type IconType = ', 'type IconType = '],
-      ]
+      [['export type IconType = ', 'type IconType = ']]
     );
   }
 }
