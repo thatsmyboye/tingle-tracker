@@ -42,26 +42,49 @@
  *         ([AnyHashable:Any]? → non-optional required by createRootView)
  *
  * ── react-native-screens ───────────────────────────────────────────────────
- * Codegen (RN 0.74 "Unknown prop type: undefined" for empty event payloads):
- *   7. src/fabric/ScreenStackHeaderConfigNativeComponent.ts
- *      `type OnAttachedEvent  = Readonly<{}>` → `null`
- *      `type OnDetachedEvent  = Readonly<{}>` → `null`
- *   8. src/fabric/ScreenNativeComponent.ts
- *      `type ScreenEvent = Readonly<{}>` → `null`
- *   9. src/fabric/ModalScreenNativeComponent.ts
- *      `type ScreenEvent = Readonly<{}>` → `null`
- *  10. src/fabric/ScreenStackNativeComponent.ts
- *      `type FinishTransitioningEvent = Readonly<{}>` → `null`
- *  11. src/fabric/SearchBarNativeComponent.ts
- *      `export type SearchBarEvent = Readonly<{}>` → `null`
- *      RN 0.74 Codegen resolves empty Readonly<{}> as `undefined`; `null` is
- *      the correct form for no-payload DirectEventHandler in that Codegen.
+ * Two distinct RN 0.74 Codegen bugs affect react-native-screens@4.x:
+ *
+ * Bug A — empty Readonly<{}> event payloads:
+ *   RN 0.74 Codegen resolves Readonly<{}> as `undefined` (no-payload events
+ *   must use `null`). Affected files:
+ *   7.  src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+ *       `type OnAttachedEvent/OnDetachedEvent = Readonly<{}>` → `null`
+ *   8.  src/fabric/ScreenNativeComponent.ts
+ *       `type ScreenEvent = Readonly<{}>` → `null`
+ *   9.  src/fabric/ModalScreenNativeComponent.ts
+ *       `type ScreenEvent = Readonly<{}>` → `null`
+ *   10. src/fabric/ScreenStackNativeComponent.ts
+ *       `type FinishTransitioningEvent = Readonly<{}>` → `null`
+ *   11. src/fabric/SearchBarNativeComponent.ts
+ *       `export type SearchBarEvent = Readonly<{}>` → `null`
+ *   12. src/fabric/gamma/SplitViewHostNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   13. src/fabric/gamma/SplitViewScreenNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   14. src/fabric/gamma/stack/StackScreenNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   15. src/fabric/tabs/TabsScreenNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *
+ * Bug B — exported string-union type alias in CT.WithDefault<T, ...>:
+ *   RN 0.74 Codegen treats `export type T` as an external reference and
+ *   fails to resolve it, returning `undefined`. Non-exported aliases work.
+ *   Fix: remove `export` so Codegen resolves the alias inline.
+ *   16. src/fabric/ScreenStackHeaderSubviewNativeComponent.ts
+ *       `export type HeaderSubviewTypes =` → `type HeaderSubviewTypes =`
+ *   17. src/fabric/tabs/TabsScreenNativeComponent.ts
+ *       `export type IconType =` → `type IconType =`
  */
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+
+// Resolve workspace root relative to THIS FILE so the script works when
+// invoked from any CWD — root postinstall, apps/mobile postinstall, or a
+// custom build step. (scripts/ lives directly in the workspace root.)
+const WORKSPACE_ROOT = path.resolve(__dirname, '..');
 
 // ── Shared constants ────────────────────────────────────────────────────────
 
@@ -143,9 +166,9 @@ function findPackageRoot(pkgPrefix) {
 // starts with pkgPrefix.  pnpm can install the same package multiple times
 // under different peer-dep hashes; we must patch all of them.
 function findAllPackageRoots(pkgPrefix) {
-  const virtualStore = path.join(process.cwd(), 'node_modules', '.pnpm');
+  const virtualStore = path.join(WORKSPACE_ROOT, 'node_modules', '.pnpm');
   if (!fs.existsSync(virtualStore)) {
-    const flat = path.join(process.cwd(), 'node_modules', pkgPrefix.split('@')[0]);
+    const flat = path.join(WORKSPACE_ROOT, 'node_modules', pkgPrefix.split('@')[0]);
     return fs.existsSync(flat) ? [flat] : [];
   }
   const pkgName = pkgPrefix.split('@')[0];
@@ -176,14 +199,14 @@ function patchFile(filePath, replacements) {
   }
 
   if (!changed) {
-    console.log(`[patch-native-deps] already patched: ${path.relative(process.cwd(), filePath)}`);
+    console.log(`[patch-native-deps] already patched: ${path.relative(WORKSPACE_ROOT, filePath)}`);
     return;
   }
 
   // Unlink before writing to break the pnpm hardlink to the global store.
   fs.unlinkSync(filePath);
   fs.writeFileSync(filePath, content, 'utf8');
-  console.log(`[patch-native-deps] patched: ${path.relative(process.cwd(), filePath)}`);
+  console.log(`[patch-native-deps] patched: ${path.relative(WORKSPACE_ROOT, filePath)}`);
 }
 
 // ── expo-dev-menu patches ───────────────────────────────────────────────────
@@ -262,15 +285,17 @@ if (!rnRoot) {
 
 // ── react-native-screens patches ────────────────────────────────────────────
 //
-// react-native-screens@4.x defines event payload types as Readonly<{}> (empty
-// object).  React Native 0.74's Codegen parser treats that as `undefined` and
-// aborts with "Unknown prop type for …: undefined".  Changing the aliases to
-// `null` is the correct form for no-payload events in RN 0.74 Codegen.
-
-// pnpm can install the same package multiple times under different peer-dep
-// hashes.  findAllPackageRoots returns every virtual-store instance so we
-// patch them all, regardless of which hash EAS resolves on its machines.
-const rnScreensRoots = findAllPackageRoots('react-native-screens@4.24.0');
+// react-native-screens (3.x and 4.x) defines event payload types as
+// Readonly<{}> (empty object).  React Native 0.74's Codegen parser treats that
+// as `undefined` and aborts with "Unknown prop type for …: undefined".
+// Changing the aliases to `null` is the correct form for no-payload events
+// in RN 0.74 Codegen.
+//
+// Version-agnostic: we match any installed version of react-native-screens so
+// this script works regardless of whether pnpm resolves 3.37.0 or 4.24.0.
+// pnpm can also install the same package multiple times under different
+// peer-dep hashes; findAllPackageRoots returns every virtual-store instance.
+const rnScreensRoots = findAllPackageRoots('react-native-screens@');
 if (rnScreensRoots.length === 0) {
   console.log('[patch-native-deps] react-native-screens not found, skipping');
 } else {
@@ -322,13 +347,82 @@ if (rnScreensRoots.length === 0) {
     );
 
     // SearchBarNativeComponent.ts — SearchBarEvent (exported)
+    // 4.x has a per-line eslint-disable comment; 3.37.0 only has a file-top
+    // /* eslint-disable */ so we need both patterns (tried in order; whichever
+    // matches first wins — after replacement the other won't match anyway).
     patchFile(
       path.join(fabricDir, 'SearchBarNativeComponent.ts'),
       [
+        // 4.x format: per-line eslint-disable comment present
         [
           '// eslint-disable-next-line @typescript-eslint/ban-types\nexport type SearchBarEvent = Readonly<{}>;',
           'export type SearchBarEvent = null;',
         ],
+        // 3.37.0 format: no per-line comment (file has /* eslint-disable */ at top)
+        [
+          'export type SearchBarEvent = Readonly<{}>;',
+          'export type SearchBarEvent = null;',
+        ],
+      ]
+    );
+
+    // ── Bug B: exported string-union type alias in CT.WithDefault ─────────────
+    // RN 0.74 Codegen treats `export type T` as an external reference and
+    // returns `undefined` instead of resolving the string union inline.
+    // Fix: remove `export` so the alias is resolved as a module-local type.
+
+    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes
+    patchFile(
+      path.join(fabricDir, 'ScreenStackHeaderSubviewNativeComponent.ts'),
+      [['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes =']]
+    );
+
+    // ── Subdirectory fabric files ─────────────────────────────────────────────
+
+    // gamma/SplitViewHostNativeComponent.ts — GenericEmptyEvent
+    patchFile(
+      path.join(fabricDir, 'gamma', 'SplitViewHostNativeComponent.ts'),
+      [
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+      ]
+    );
+
+    // gamma/SplitViewScreenNativeComponent.ts — GenericEmptyEvent
+    patchFile(
+      path.join(fabricDir, 'gamma', 'SplitViewScreenNativeComponent.ts'),
+      [
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+      ]
+    );
+
+    // gamma/stack/StackScreenNativeComponent.ts — GenericEmptyEvent
+    patchFile(
+      path.join(fabricDir, 'gamma', 'stack', 'StackScreenNativeComponent.ts'),
+      [
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+      ]
+    );
+
+    // tabs/TabsScreenNativeComponent.ts — GenericEmptyEvent + IconType (Bug A + B)
+    patchFile(
+      path.join(fabricDir, 'tabs', 'TabsScreenNativeComponent.ts'),
+      [
+        // Bug A: empty event payload
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+        // Bug B: exported string-union in CT.WithDefault
+        ['export type IconType = ', 'type IconType = '],
       ]
     );
   }
