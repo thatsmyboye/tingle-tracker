@@ -28,7 +28,11 @@ build:
     # Generate native ios/ and android/ directories from the Expo config.
     # Codegen also runs during pod install (triggered by Fastlane), so the
     # patch above must happen before this step.
-    - eas/prebuild
+    # Using pnpm exec instead of eas/prebuild (which calls npx internally)
+    # to avoid npm libnpmexec lock corruption on Node.js 24 (ECOMPROMISED).
+    - run:
+        name: Expo prebuild
+        command: cd apps/mobile && pnpm exec expo prebuild --clean --non-interactive
 
     # Platform-aware: eas/run_fastlane is skipped on Android builds;
     # eas/run_gradle is skipped on iOS builds.
