@@ -336,6 +336,7 @@ export type Database = {
           content_id: string;
           status: Database["public"]["Enums"]["insight_status"];
           report: Json | null;
+          predicted_heatmap: Json | null;
           error_message: string | null;
           generated_at: string | null;
           created_at: string;
@@ -346,6 +347,7 @@ export type Database = {
           content_id: string;
           status?: Database["public"]["Enums"]["insight_status"];
           report?: Json | null;
+          predicted_heatmap?: Json | null;
           error_message?: string | null;
           generated_at?: string | null;
           created_at?: string;
@@ -356,6 +358,7 @@ export type Database = {
           content_id?: string;
           status?: Database["public"]["Enums"]["insight_status"];
           report?: Json | null;
+          predicted_heatmap?: Json | null;
           error_message?: string | null;
           generated_at?: string | null;
           created_at?: string;

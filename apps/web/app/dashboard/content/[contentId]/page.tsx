@@ -31,7 +31,7 @@ interface InsightsCacheRow {
   content_id: string;
   status: "pending" | "generating" | "ready" | "error";
   report: InsightReport | null;
-  predicted_heatmap: PredictedHeatmapBucket[] | null;
+  predicted_heatmap?: PredictedHeatmapBucket[] | null;
   error_message: string | null;
   generated_at: string | null;
 }
