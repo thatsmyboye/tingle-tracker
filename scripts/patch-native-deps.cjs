@@ -42,20 +42,38 @@
  *         ([AnyHashable:Any]? → non-optional required by createRootView)
  *
  * ── react-native-screens ───────────────────────────────────────────────────
- * Codegen (RN 0.74 "Unknown prop type: undefined" for empty event payloads):
- *   7. src/fabric/ScreenStackHeaderConfigNativeComponent.ts
- *      `type OnAttachedEvent  = Readonly<{}>` → `null`
- *      `type OnDetachedEvent  = Readonly<{}>` → `null`
- *   8. src/fabric/ScreenNativeComponent.ts
- *      `type ScreenEvent = Readonly<{}>` → `null`
- *   9. src/fabric/ModalScreenNativeComponent.ts
- *      `type ScreenEvent = Readonly<{}>` → `null`
- *  10. src/fabric/ScreenStackNativeComponent.ts
- *      `type FinishTransitioningEvent = Readonly<{}>` → `null`
- *  11. src/fabric/SearchBarNativeComponent.ts
- *      `export type SearchBarEvent = Readonly<{}>` → `null`
- *      RN 0.74 Codegen resolves empty Readonly<{}> as `undefined`; `null` is
- *      the correct form for no-payload DirectEventHandler in that Codegen.
+ * Two distinct RN 0.74 Codegen bugs affect react-native-screens@4.x:
+ *
+ * Bug A — empty Readonly<{}> event payloads:
+ *   RN 0.74 Codegen resolves Readonly<{}> as `undefined` (no-payload events
+ *   must use `null`). Affected files:
+ *   7.  src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+ *       `type OnAttachedEvent/OnDetachedEvent = Readonly<{}>` → `null`
+ *   8.  src/fabric/ScreenNativeComponent.ts
+ *       `type ScreenEvent = Readonly<{}>` → `null`
+ *   9.  src/fabric/ModalScreenNativeComponent.ts
+ *       `type ScreenEvent = Readonly<{}>` → `null`
+ *   10. src/fabric/ScreenStackNativeComponent.ts
+ *       `type FinishTransitioningEvent = Readonly<{}>` → `null`
+ *   11. src/fabric/SearchBarNativeComponent.ts
+ *       `export type SearchBarEvent = Readonly<{}>` → `null`
+ *   12. src/fabric/gamma/SplitViewHostNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   13. src/fabric/gamma/SplitViewScreenNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   14. src/fabric/gamma/stack/StackScreenNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *   15. src/fabric/tabs/TabsScreenNativeComponent.ts
+ *       `type GenericEmptyEvent = Readonly<{}>` → `null`
+ *
+ * Bug B — exported string-union type alias in CT.WithDefault<T, ...>:
+ *   RN 0.74 Codegen treats `export type T` as an external reference and
+ *   fails to resolve it, returning `undefined`. Non-exported aliases work.
+ *   Fix: remove `export` so Codegen resolves the alias inline.
+ *   16. src/fabric/ScreenStackHeaderSubviewNativeComponent.ts
+ *       `export type HeaderSubviewTypes =` → `type HeaderSubviewTypes =`
+ *   17. src/fabric/tabs/TabsScreenNativeComponent.ts
+ *       `export type IconType =` → `type IconType =`
  */
 
 'use strict';
@@ -345,6 +363,66 @@ if (rnScreensRoots.length === 0) {
           'export type SearchBarEvent = Readonly<{}>;',
           'export type SearchBarEvent = null;',
         ],
+      ]
+    );
+
+    // ── Bug B: exported string-union type alias in CT.WithDefault ─────────────
+    // RN 0.74 Codegen treats `export type T` as an external reference and
+    // returns `undefined` instead of resolving the string union inline.
+    // Fix: remove `export` so the alias is resolved as a module-local type.
+
+    // ScreenStackHeaderSubviewNativeComponent.ts — HeaderSubviewTypes
+    patchFile(
+      path.join(fabricDir, 'ScreenStackHeaderSubviewNativeComponent.ts'),
+      [['export type HeaderSubviewTypes =', 'type HeaderSubviewTypes =']]
+    );
+
+    // ── Subdirectory fabric files ─────────────────────────────────────────────
+
+    // gamma/SplitViewHostNativeComponent.ts — GenericEmptyEvent
+    patchFile(
+      path.join(fabricDir, 'gamma', 'SplitViewHostNativeComponent.ts'),
+      [
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+      ]
+    );
+
+    // gamma/SplitViewScreenNativeComponent.ts — GenericEmptyEvent
+    patchFile(
+      path.join(fabricDir, 'gamma', 'SplitViewScreenNativeComponent.ts'),
+      [
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+      ]
+    );
+
+    // gamma/stack/StackScreenNativeComponent.ts — GenericEmptyEvent
+    patchFile(
+      path.join(fabricDir, 'gamma', 'stack', 'StackScreenNativeComponent.ts'),
+      [
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+      ]
+    );
+
+    // tabs/TabsScreenNativeComponent.ts — GenericEmptyEvent + IconType (Bug A + B)
+    patchFile(
+      path.join(fabricDir, 'tabs', 'TabsScreenNativeComponent.ts'),
+      [
+        // Bug A: empty event payload
+        [
+          '// eslint-disable-next-line @typescript-eslint/ban-types\ntype GenericEmptyEvent = Readonly<{}>;',
+          'type GenericEmptyEvent = null;',
+        ],
+        // Bug B: exported string-union in CT.WithDefault
+        ['export type IconType = ', 'type IconType = '],
       ]
     );
   }
