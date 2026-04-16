@@ -1,0 +1,27 @@
+build:
+  name: Tingle Tracker
+  steps:
+    # Install workspace dependencies (pnpm install --frozen-lockfile).
+    # NOTE: pnpm@9.x used by EAS Build does not reliably run root-workspace
+    # lifecycle scripts with --frozen-lockfile, so we patch explicitly below.
+    - eas/install_node_modules
+
+    # Patch react-native-screens Fabric TypeScript spec files so that RN 0.74
+    # Codegen receives `null` instead of `Readonly<{}>` for empty event types.
+    # Without this patch, Xcode Codegen aborts with:
+    #   Unknown prop type for "onSearchFocus": "undefined"
+    # CWD on EAS Build is the monorepo root (/Users/expo/workingdir/build),
+    # so the path is relative to the repo root, not apps/mobile/.
+    - run:
+        name: Patch react-native-screens Fabric types for RN 0.74 Codegen
+        command: node scripts/patch-native-deps.cjs
+
+    # Generate native ios/ and android/ directories from the Expo config.
+    # Codegen also runs during pod install (triggered by Fastlane), so the
+    # patch above must happen before this step.
+    - eas/prebuild
+
+    # Platform-aware: eas/run_fastlane is skipped on Android builds;
+    # eas/run_gradle is skipped on iOS builds.
+    - eas/run_fastlane
+    - eas/run_gradle
