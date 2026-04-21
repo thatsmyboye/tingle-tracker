@@ -1,0 +1,32 @@
+# Fly.io config for the Tingle audio feature extraction worker.
+# Before first deploy:
+#   fly apps create tingle-audio-worker   (or choose your own name)
+#   fly secrets set AUDIO_WORKER_SECRET=<shared-secret>
+#   fly deploy --app tingle-audio-worker
+
+app = "tingle-audio-worker"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Scale to zero when idle — first request after idle will cold-start (~10-30s).
+  # Acceptable for Inngest background jobs (15-min step timeout).
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    # Process one extraction at a time per machine; Fly will spin up more if needed.
+    hard_limit = 5
+    soft_limit = 2
+
+[[vm]]
+  # 2 GB RAM handles a 2-hour WAV temp file + librosa chunked loading comfortably.
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 2

@@ -167,6 +167,18 @@ export interface TimedTranscriptSegment {
   duration_ms: number;
 }
 
+/** Raw acoustic features for a single 30-second window, returned by the Python audio worker */
+export interface AudioFeatureWindow {
+  bucket_start_ms: number;
+  bucket_end_ms: number;
+  /** Root mean square amplitude — higher = louder */
+  rms_energy: number;
+  /** Center-of-mass of the frequency spectrum in Hz — lower ≈ bass/whisper, higher ≈ crisp/bright */
+  spectral_centroid: number;
+  /** Rate of audio signal sign changes — higher = more texture/noise (tapping, crinkling) */
+  zero_crossing_rate: number;
+}
+
 /** One 30-second bucket in the audio-analysis predicted heatmap (sparse — only notable peaks) */
 export interface PredictedHeatmapBucket {
   bucket_start_ms: number;

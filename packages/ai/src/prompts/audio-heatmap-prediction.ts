@@ -1,4 +1,4 @@
-import type { TriggerTag, TimedTranscriptSegment } from "@tingle/types";
+import type { TriggerTag, TimedTranscriptSegment, AudioFeatureWindow } from "@tingle/types";
 
 // =============================================================================
 // Prompt: Audio Heatmap Prediction
@@ -13,6 +13,8 @@ export interface AudioHeatmapPredictionInput {
   timedSegments: TimedTranscriptSegment[] | null;
   durationSeconds: number;
   availableTags: Pick<TriggerTag, "slug" | "label" | "category">[];
+  /** Per-window acoustic features from the Python worker; null when worker is unavailable */
+  audioFeatures?: AudioFeatureWindow[] | null;
 }
 
 /** Serialise timed segments into a compact text block for the prompt */
@@ -29,6 +31,20 @@ function formatSegments(segments: TimedTranscriptSegment[]): string {
     .join("\n");
 }
 
+/** Serialise audio features into a compact text block for the prompt */
+function formatAudioFeatures(features: AudioFeatureWindow[]): string {
+  // Cap at 120 windows (~1 hour) to stay within token budget
+  return features
+    .slice(0, 120)
+    .map((f) => {
+      const mins = Math.floor(f.bucket_start_ms / 60000);
+      const secs = Math.floor((f.bucket_start_ms % 60000) / 1000);
+      const ts = `${mins}:${String(secs).padStart(2, "0")}`;
+      return `[${ts}] rms=${f.rms_energy.toFixed(4)} centroid=${Math.round(f.spectral_centroid)}Hz zcr=${f.zero_crossing_rate.toFixed(4)}`;
+    })
+    .join("\n");
+}
+
 export function buildAudioHeatmapPredictionPrompt(
   input: AudioHeatmapPredictionInput
 ): string {
@@ -38,7 +54,25 @@ export function buildAudioHeatmapPredictionPrompt(
 
   const transcriptBlock = input.timedSegments
     ? `## Timed Captions (timestamp: text)\n${formatSegments(input.timedSegments)}`
-    : "No captions available — use title and description to estimate.";
+    : "No captions available — use title, description, and audio features to estimate.";
+
+  const audioBlock = input.audioFeatures && input.audioFeatures.length > 0
+    ? `## Acoustic Features (per 30-second window)
+Format: [timestamp] rms=<amplitude> centroid=<Hz> zcr=<zero-crossing-rate>
+
+Interpretation:
+- rms_energy: loudness (higher = louder; ASMR whispers typically 0.005–0.03)
+- spectral_centroid: frequency character (lower ≈ bass/whisper; higher ≈ crisp/bright)
+- zero_crossing_rate: texture (higher = noise/texture like tapping/crinkling; lower = pure tone)
+
+ASMR signal patterns:
+- Whispering/soft speaking: low rms + low zcr + low-mid centroid
+- Tapping/crinkling/scratching: moderate rms + high zcr
+- Near silence or deliberate pause: very low rms
+- Page turning/plastic sounds: moderate rms + mid-high centroid
+
+${formatAudioFeatures(input.audioFeatures)}`
+    : null;
 
   const totalMinutes = Math.ceil(input.durationSeconds / 60);
   const bucketSizeMs = 30_000;
@@ -52,6 +86,8 @@ ${input.description ? `**Description:** ${input.description.slice(0, 500)}` : ""
 
 ${transcriptBlock}
 
+${audioBlock ?? "No acoustic feature data available."}
+
 ## Trigger Taxonomy
 ${tagList}
 
@@ -62,6 +98,8 @@ Identify the 30-second windows (buckets) most likely to trigger tingles. Focus o
 - Binaural or close-mic audio moments
 - Roleplay or care scenarios
 - Noticeably quiet, deliberate pacing
+
+${audioBlock ? "Use the acoustic features as primary signal — windows with low rms + low zcr strongly indicate whispering; high zcr indicates tactile triggers. Captions provide context for the trigger type." : ""}
 
 Return ONLY the notable peak buckets — windows where predicted intensity is 3.0 or higher.
 Skip the intro/outro unless they contain strong ASMR activity.

@@ -6,7 +6,7 @@ import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
 import { useAuth } from "@/hooks/useAuth";
 import { HeatmapChart } from "@/components/HeatmapChart";
-import type { ContentTingleHeatmapRow, InsightReport, PredictedHeatmapBucket } from "@tingle/types";
+import type { ContentTingleHeatmapRow, InsightReport, PredictedHeatmapBucket, CreatorPlan } from "@tingle/types";
 
 // =============================================================================
 // /dashboard/content/[contentId] — Per-video heatmap + trigger analysis
@@ -88,6 +88,7 @@ export default function ContentDetailPage({
   const [content, setContent] = useState<ContentDetail | null>(null);
   const [heatmap, setHeatmap] = useState<ContentTingleHeatmapRow[]>([]);
   const [insights, setInsights] = useState<InsightsCacheRow | null>(null);
+  const [creatorPlan, setCreatorPlan] = useState<CreatorPlan>("free");
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -121,6 +122,20 @@ export default function ContentDetailPage({
     setContent(contentRes.data as ContentDetail);
     setHeatmap((heatmapRes.data ?? []) as ContentTingleHeatmapRow[]);
     setInsights((insightsRes.data as InsightsCacheRow | null) ?? null);
+
+    // Fetch the creator's plan — used to gate the predicted heatmap preview.
+    // user.id is always set here (auth guard runs before loadData is called).
+    if (user) {
+      const planRes = await supabase
+        .from("creators")
+        .select("plan")
+        .eq("user_id", user.id)
+        .single();
+      if (planRes.data?.plan) {
+        setCreatorPlan(planRes.data.plan as CreatorPlan);
+      }
+    }
+
     setLoadingData(false);
   }
 
@@ -218,6 +233,19 @@ export default function ContentDetailPage({
     );
   }
 
+  // ---- Free-tier predicted heatmap gating -----------------------------------
+
+  // Free plan creators see the first 10 minutes of AI prediction as a preview.
+  // Pro and Studio see the full heatmap.
+  const FREE_PREDICTED_CUTOFF_MS = 10 * 60 * 1000;
+  const allPredictedBuckets = insights?.predicted_heatmap ?? [];
+  const visiblePredictedBuckets =
+    creatorPlan === "free"
+      ? allPredictedBuckets.filter((b) => b.bucket_start_ms < FREE_PREDICTED_CUTOFF_MS)
+      : allPredictedBuckets;
+  const hasLockedPredicted =
+    creatorPlan === "free" && allPredictedBuckets.length > visiblePredictedBuckets.length;
+
   // ---- Stats -----------------------------------------------------------------
 
   const totalTingles = heatmap.reduce((sum, b) => sum + b.tingle_count, 0);
@@ -308,9 +336,27 @@ export default function ContentDetailPage({
         <HeatmapChart
           buckets={heatmap}
           durationSeconds={content.duration_seconds}
-          predictedBuckets={insights?.predicted_heatmap ?? []}
+          predictedBuckets={visiblePredictedBuckets}
           realTingleTotal={totalTingles}
         />
+        {hasLockedPredicted && (
+          <div className="mt-3 flex items-center justify-between rounded border border-tingle-gold/20 bg-tingle-gold/5 px-4 py-3">
+            <div>
+              <p className="font-mono text-xs text-tingle-gold">
+                AI Prediction preview — first 10 minutes shown
+              </p>
+              <p className="font-mono text-[10px] text-surface-muted mt-0.5">
+                Upgrade to Creator Pro to unlock the full predicted heatmap
+              </p>
+            </div>
+            <Link
+              href="/pricing"
+              className="ml-4 whitespace-nowrap rounded border border-tingle-gold/40 bg-tingle-gold/10 px-3 py-1.5 text-xs text-tingle-gold hover:bg-tingle-gold/20"
+            >
+              Upgrade
+            </Link>
+          </div>
+        )}
       </section>
 
       {/* Trigger analysis */}
