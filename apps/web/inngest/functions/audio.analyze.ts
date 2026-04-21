@@ -3,13 +3,13 @@ import { inngest } from "@/inngest/client";
 import { getSupabaseServerClient } from "@tingle/database";
 import { getAnthropicClient, CLAUDE_MODEL, buildAudioHeatmapPredictionPrompt } from "@tingle/ai";
 import { fetchYouTubeTimedTranscript } from "@/lib/youtube";
-import type { PredictedHeatmapBucket } from "@tingle/types";
+import type { PredictedHeatmapBucket, AudioFeatureWindow } from "@tingle/types";
 
 // =============================================================================
 // audio.analyze
 // Triggered by "content/ingested" in parallel with content.process.
-// Fetches timed captions, asks Claude to predict a tingle heatmap, and writes
-// the result to insights_cache.predicted_heatmap.
+// Fetches timed captions + acoustic features, asks Claude to predict a tingle
+// heatmap, and writes the result to insights_cache.predicted_heatmap.
 //
 // Deliberately does NOT touch insights_cache.report or insights_cache.status —
 // those are owned by content.process.
@@ -27,6 +27,16 @@ const PredictedBucketSchema = z.array(
     predicted_intensity: z.number().min(1).max(5),
     confidence: z.number().min(0).max(1),
     dominant_trigger_slugs: z.array(z.string()).min(1).max(3),
+  })
+);
+
+const AudioFeatureWindowSchema = z.array(
+  z.object({
+    bucket_start_ms: z.number().int().nonnegative(),
+    bucket_end_ms: z.number().int().positive(),
+    rms_energy: z.number().nonnegative(),
+    spectral_centroid: z.number().nonnegative(),
+    zero_crossing_rate: z.number().nonnegative(),
   })
 );
 
@@ -55,7 +65,45 @@ export const audioAnalyze = inngest.createFunction(
         return fetchYouTubeTimedTranscript(contentMeta.youtube_video_id);
       });
 
-      // ---- 3. Fetch trigger tags -----------------------------------------------
+      // ---- 3. Extract acoustic features via Python worker (best-effort) --------
+      // Returns null when AUDIO_WORKER_URL is unset or the worker is unavailable.
+      // The job proceeds with transcript-only analysis in that case.
+      const audioFeatures = await step.run("extract-audio-features", async () => {
+        const workerUrl = process.env.AUDIO_WORKER_URL;
+        if (!workerUrl) return null;
+
+        const secret = process.env.AUDIO_WORKER_SECRET ?? "";
+
+        try {
+          const res = await fetch(`${workerUrl}/extract`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Worker-Secret": secret,
+            },
+            body: JSON.stringify({
+              youtube_video_id: contentMeta.youtube_video_id,
+              duration_seconds: contentMeta.duration_seconds ?? 0,
+            }),
+            // 15-minute ceiling — covers cold Fly machine start + full video download + extraction
+            signal: AbortSignal.timeout(900_000),
+          });
+
+          if (!res.ok) {
+            // Non-fatal: fall back to transcript-only
+            return null;
+          }
+
+          const data = await res.json() as { features?: unknown };
+          const parsed = AudioFeatureWindowSchema.safeParse(data.features);
+          return parsed.success ? (parsed.data as AudioFeatureWindow[]) : null;
+        } catch {
+          // Network error or timeout — proceed with transcript analysis only
+          return null;
+        }
+      });
+
+      // ---- 4. Fetch trigger tags -----------------------------------------------
       const triggerTags = await step.run("fetch-trigger-tags", async () => {
         const { data, error } = await db
           .from("trigger_tags")
@@ -64,7 +112,7 @@ export const audioAnalyze = inngest.createFunction(
         return data ?? [];
       });
 
-      // ---- 4. Predict heatmap with Claude -------------------------------------
+      // ---- 5. Predict heatmap with Claude -------------------------------------
       const predictedBuckets = await step.run("predict-heatmap-with-claude", async () => {
         const prompt = buildAudioHeatmapPredictionPrompt({
           title: contentMeta.title,
@@ -72,6 +120,7 @@ export const audioAnalyze = inngest.createFunction(
           timedSegments,
           durationSeconds: contentMeta.duration_seconds ?? 0,
           availableTags: triggerTags,
+          audioFeatures,
         });
 
         const anthropic = getAnthropicClient();
@@ -102,13 +151,18 @@ export const audioAnalyze = inngest.createFunction(
         return { contentId, skipped: true, reason: "Claude returned no peak buckets" };
       }
 
-      // ---- 5. Persist predicted heatmap ----------------------------------------
+      // ---- 6. Persist predicted heatmap ----------------------------------------
       // Upsert only the predicted_heatmap column so content.process's report/status
       // fields are never overwritten, regardless of job ordering.
       await step.run("store-predicted-heatmap", async () => {
+        // Mark source as "audio_features" when the worker contributed data,
+        // "transcript_analysis" when falling back to captions/title only.
+        const source: PredictedHeatmapBucket["source"] =
+          audioFeatures != null ? "audio_features" : "transcript_analysis";
+
         const buckets: PredictedHeatmapBucket[] = predictedBuckets.map((b) => ({
           ...b,
-          source: "transcript_analysis" as const,
+          source,
         }));
 
         const { error } = await db
@@ -125,7 +179,11 @@ export const audioAnalyze = inngest.createFunction(
         if (error) throw new Error(`Failed to store predicted heatmap: ${error.message}`);
       });
 
-      return { contentId, bucketsStored: predictedBuckets.length };
+      return {
+        contentId,
+        bucketsStored: predictedBuckets.length,
+        source: audioFeatures != null ? "audio_features" : "transcript_analysis",
+      };
     } catch (err) {
       // audio.analyze errors are non-fatal — do not mark insights_cache as error.
       // content.process owns the status field.
