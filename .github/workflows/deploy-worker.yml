@@ -15,6 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure git author
+        run: |
+          git config user.email "paul.t.boye@gmail.com"
+          git config user.name "Paul Boye"
+
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy to Fly.io
