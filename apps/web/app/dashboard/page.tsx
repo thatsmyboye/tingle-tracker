@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
@@ -53,6 +53,12 @@ export default function DashboardPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddVideo, setShowAddVideo] = useState(false);
+
+  const [showCreatorForm, setShowCreatorForm] = useState(false);
+  const [creatorName, setCreatorName] = useState("");
+  const [creatorUrl, setCreatorUrl] = useState("");
+  const [creatingProfile, setCreatingProfile] = useState(false);
+  const [creatorFormError, setCreatorFormError] = useState<string | null>(null);
 
   async function loadData() {
     if (!user) return;
@@ -137,6 +143,34 @@ export default function DashboardPage() {
     }
 
     setLoadingData(false);
+  }
+
+  async function handleCreateCreator(e: FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    const name = creatorName.trim();
+    if (name.length < 2 || name.length > 80) {
+      setCreatorFormError("Display name must be between 2 and 80 characters.");
+      return;
+    }
+    setCreatingProfile(true);
+    setCreatorFormError(null);
+    const supabase = getSupabaseBrowserClient();
+    const { error: insertError } = await supabase.from("creators").insert({
+      user_id: user.id,
+      display_name: name,
+      youtube_channel_url: creatorUrl.trim() || null,
+    });
+    if (insertError) {
+      setCreatorFormError(insertError.message);
+      setCreatingProfile(false);
+      return;
+    }
+    await supabase
+      .from("user_profiles")
+      .upsert({ user_id: user.id, is_creator: true }, { onConflict: "user_id" });
+    setCreatingProfile(false);
+    loadData();
   }
 
   useEffect(() => {
@@ -225,15 +259,98 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <div className="rounded-lg border border-surface-border bg-surface-elevated p-6 mb-4">
+          {!showCreatorForm ? (
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm text-white mb-0.5">Are you an ASMR creator?</p>
+                <p className="text-xs text-surface-muted">Set up a creator profile to link videos and track tingle heatmaps.</p>
+              </div>
+              <button
+                onClick={() => setShowCreatorForm(true)}
+                className="flex-shrink-0 rounded-lg border border-tingle-aqua/40 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
+              >
+                Become a Creator
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleCreateCreator} className="space-y-4">
+              <h2 className="text-xs uppercase tracking-widest text-surface-muted">Creator profile</h2>
+              <div>
+                <label className="block text-xs text-surface-muted mb-1" htmlFor="creator-name">
+                  Display name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  id="creator-name"
+                  type="text"
+                  value={creatorName}
+                  onChange={(e) => setCreatorName(e.target.value)}
+                  placeholder="Your creator name"
+                  minLength={2}
+                  maxLength={80}
+                  required
+                  disabled={creatingProfile}
+                  className={cn(
+                    "w-full rounded-lg border border-surface-border bg-surface px-3 py-2",
+                    "font-mono text-sm text-foreground placeholder:text-surface-muted",
+                    "focus:outline-none focus:ring-1 focus:ring-tingle-aqua",
+                    "disabled:opacity-50",
+                  )}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted mb-1" htmlFor="creator-url">
+                  YouTube channel URL <span className="text-surface-muted/60">(optional)</span>
+                </label>
+                <input
+                  id="creator-url"
+                  type="url"
+                  value={creatorUrl}
+                  onChange={(e) => setCreatorUrl(e.target.value)}
+                  placeholder="https://youtube.com/@yourchannel"
+                  disabled={creatingProfile}
+                  className={cn(
+                    "w-full rounded-lg border border-surface-border bg-surface px-3 py-2",
+                    "font-mono text-sm text-foreground placeholder:text-surface-muted",
+                    "focus:outline-none focus:ring-1 focus:ring-tingle-aqua",
+                    "disabled:opacity-50",
+                  )}
+                />
+              </div>
+              {creatorFormError && (
+                <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                  {creatorFormError}
+                </p>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={creatingProfile || creatorName.trim().length < 2}
+                  className="rounded-lg border border-tingle-aqua/40 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40 transition-colors"
+                >
+                  {creatingProfile ? "Creating…" : "Create creator profile"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowCreatorForm(false); setCreatorFormError(null); }}
+                  disabled={creatingProfile}
+                  className="text-xs text-surface-muted hover:text-tingle-aqua"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
         <p className="text-center text-xs text-surface-muted">
-          Want creator analytics?{" "}
+          Need help?{" "}
           <a
-            href="mailto:hello@tingle-tracker.com"
+            href="mailto:paul@banton-digital.com"
             className="text-tingle-aqua underline-offset-2 hover:underline"
           >
-            Contact us
-          </a>{" "}
-          to get access.
+            Email us
+          </a>
         </p>
       </main>
     );
