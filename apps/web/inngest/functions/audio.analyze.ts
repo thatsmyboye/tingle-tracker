@@ -60,8 +60,9 @@ export const audioAnalyze = inngest.createFunction(
       });
 
       // ---- 2. Fetch timed transcript (best-effort) -----------------------------
+      // Always attempt regardless of transcript_available flag — the Data API
+      // misreports auto-generated captions as unavailable.
       const timedSegments = await step.run("fetch-timed-transcript", async () => {
-        if (!contentMeta.transcript_available) return null;
         return fetchYouTubeTimedTranscript(contentMeta.youtube_video_id);
       });
 
@@ -114,6 +115,7 @@ export const audioAnalyze = inngest.createFunction(
 
       // ---- 5. Predict heatmap with Claude -------------------------------------
       const predictedBuckets = await step.run("predict-heatmap-with-claude", async () => {
+        console.log(`[audio.analyze:predict] contentId=${contentId} segments=${timedSegments?.length ?? 0} audioFeatures=${audioFeatures?.length ?? 0}`);
         const prompt = buildAudioHeatmapPredictionPrompt({
           title: contentMeta.title,
           description: contentMeta.description ?? null,
@@ -188,6 +190,7 @@ export const audioAnalyze = inngest.createFunction(
       // audio.analyze errors are non-fatal — do not mark insights_cache as error.
       // content.process owns the status field.
       const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[audio.analyze] skipped contentId=${contentId}: ${reason}`);
       return { contentId, skipped: true, reason };
     }
   }
