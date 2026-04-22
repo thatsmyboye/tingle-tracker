@@ -160,16 +160,21 @@ function decodeEntities(raw: string): string {
 function parseTimedTextSrv3(xml: string): TimedTranscriptSegment[] {
   // srv3 format: <p t="500" d="2100">caption text</p>
   // `t` = start in ms, `d` = duration in ms
+  // Attribute order is not guaranteed — extract t and d independently.
   const segments: TimedTranscriptSegment[] = [];
-  const pTagRe = /<p[^>]*\bt="(\d+)"[^>]*\bd="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+  const pTagRe = /<p\b([^>]*)>([\s\S]*?)<\/p>/g;
   let match: RegExpExecArray | null;
   while ((match = pTagRe.exec(xml)) !== null) {
-    const text = decodeEntities(match[3].replace(/<[^>]+>/g, " "));
+    const attrs = match[1];
+    const tMatch = /\bt="(\d+)"/.exec(attrs);
+    const dMatch = /\bd="(\d+)"/.exec(attrs);
+    if (!tMatch || !dMatch) continue;
+    const text = decodeEntities(match[2].replace(/<[^>]+>/g, " "));
     if (!text) continue;
     segments.push({
       text,
-      start_ms: parseInt(match[1], 10),
-      duration_ms: parseInt(match[2], 10),
+      start_ms: parseInt(tMatch[1], 10),
+      duration_ms: parseInt(dMatch[1], 10),
     });
   }
   return segments;

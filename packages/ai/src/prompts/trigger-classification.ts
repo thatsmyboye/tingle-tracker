@@ -35,6 +35,7 @@ Return a JSON array of trigger matches. For each trigger present in the video, i
 
 Only include triggers you are reasonably confident about (confidence >= 0.4).
 Order results by confidence descending.
+Use ONLY slugs that appear in the list above — do not invent or guess slugs.
 
 Respond with ONLY valid JSON, no markdown or explanation outside the array.
 

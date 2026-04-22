@@ -26,7 +26,7 @@ const PredictedBucketSchema = z.array(
     bucket_end_ms: z.number().int().positive(),
     predicted_intensity: z.number().min(1).max(5),
     confidence: z.number().min(0).max(1),
-    dominant_trigger_slugs: z.array(z.string()).min(1).max(3),
+    dominant_trigger_slugs: z.array(z.string()).max(3),
   })
 );
 
