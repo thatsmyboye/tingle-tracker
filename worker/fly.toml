@@ -4,7 +4,7 @@
 #   fly secrets set AUDIO_WORKER_SECRET=<shared-secret>
 #   fly deploy --app tingle-audio-worker
 
-app = "tingle-audio-worker"
+app = "tingle-tracker-audio-worker"
 primary_region = "iad"
 
 [build]
