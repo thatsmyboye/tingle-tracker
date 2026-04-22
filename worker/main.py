@@ -22,6 +22,11 @@ class ExtractRequest(BaseModel):
     duration_seconds: float
 
 
+@app.get("/")
+def root():
+    return {"service": "tingle-audio-worker", "status": "ok", "endpoints": ["/health", "/extract"]}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
