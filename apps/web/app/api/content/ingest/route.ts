@@ -74,19 +74,51 @@ export async function POST(request: Request) {
     );
   }
 
-  // ---- Check for duplicate --------------------------------------------------
+  // ---- Check for duplicate or previously-removed row -----------------------
 
-  const { data: existing } = await userClient
+  const serviceClient = createClient(
+    supabaseUrl,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const { data: existing } = await serviceClient
     .from("content")
-    .select("id")
+    .select("id, creator_id")
     .eq("youtube_video_id", videoId)
-    .single();
+    .maybeSingle();
 
   if (existing) {
-    return NextResponse.json(
-      { error: "This video has already been ingested.", contentId: existing.id },
-      { status: 409 }
-    );
+    if (existing.creator_id === creatorId) {
+      return NextResponse.json(
+        { error: "This video has already been added to your library.", contentId: existing.id },
+        { status: 409 }
+      );
+    }
+
+    // Row exists but was previously removed (creator_id = null) — re-claim it
+    if (existing.creator_id === null) {
+      const { error: reclaimError } = await serviceClient
+        .from("content")
+        .update({ creator_id: creatorId, status: "pending" })
+        .eq("id", existing.id);
+
+      if (reclaimError) {
+        return NextResponse.json({ error: reclaimError.message }, { status: 500 });
+      }
+
+      const { data: reclaimed } = await userClient
+        .from("content")
+        .select()
+        .eq("id", existing.id)
+        .single();
+
+      await inngest.send({
+        name: "content/ingested",
+        data: { contentId: existing.id, creatorId },
+      });
+
+      return NextResponse.json({ content: reclaimed }, { status: 201 });
+    }
   }
 
   // ---- Fetch YouTube metadata -----------------------------------------------
