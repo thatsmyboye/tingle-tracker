@@ -112,7 +112,7 @@ Each bucket object must have:
 - \`bucket_end_ms\`: integer, equals bucket_start_ms + ${bucketSizeMs}
 - \`predicted_intensity\`: float 1.0–5.0 (3.0 minimum since you're only returning peaks)
 - \`confidence\`: float 0.0–1.0
-- \`dominant_trigger_slugs\`: array of 1–3 slugs from the taxonomy above
+- \`dominant_trigger_slugs\`: array of 1–3 slugs — use ONLY slugs that appear in the taxonomy above, do not invent new ones
 
 Respond with ONLY a valid JSON array, no markdown or explanation.
 
