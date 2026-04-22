@@ -42,14 +42,16 @@ export const contentProcess = inngest.createFunction(
 
     try {
       // ---- 2. Fetch transcript (best-effort) -----------------------------------
+      // Always attempt regardless of transcript_available flag — the Data API
+      // misreports auto-generated captions as unavailable.
       const transcript = await step.run("fetch-transcript", async () => {
         const { data: content } = await db
           .from("content")
-          .select("youtube_video_id, transcript_available")
+          .select("youtube_video_id")
           .eq("id", contentId)
           .single();
 
-        if (!content?.transcript_available) return null;
+        if (!content) return null;
         return fetchYouTubeTranscript(content.youtube_video_id);
       });
 

@@ -156,41 +156,56 @@ function decodeEntities(raw: string): string {
     .trim();
 }
 
+/** Parse srv3 XML caption format into timed segments */
+function parseTimedTextSrv3(xml: string): TimedTranscriptSegment[] {
+  // srv3 format: <p t="500" d="2100">caption text</p>
+  // `t` = start in ms, `d` = duration in ms
+  const segments: TimedTranscriptSegment[] = [];
+  const pTagRe = /<p[^>]*\bt="(\d+)"[^>]*\bd="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
+  let match: RegExpExecArray | null;
+  while ((match = pTagRe.exec(xml)) !== null) {
+    const text = decodeEntities(match[3].replace(/<[^>]+>/g, " "));
+    if (!text) continue;
+    segments.push({
+      text,
+      start_ms: parseInt(match[1], 10),
+      duration_ms: parseInt(match[2], 10),
+    });
+  }
+  return segments;
+}
+
 /**
  * Fetch timed caption segments for a YouTube video.
- * Parses the srv3 XML format preserving per-phrase start/duration timestamps.
+ * Tries manual English captions first, then auto-generated (kind=asr) as fallback.
  * Returns null if captions are unavailable or the request fails.
  * Must be called server-side only.
  */
 export async function fetchYouTubeTimedTranscript(
   videoId: string
 ): Promise<TimedTranscriptSegment[] | null> {
-  try {
-    const url = `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=srv3`;
-    const res = await fetch(url, { next: { revalidate: 86400 } });
-    if (!res.ok) return null;
-    const xml = await res.text();
-    if (!xml || xml.trim() === "") return null;
+  // YouTube hosts manual and auto-generated captions separately. The Data API's
+  // `captionsAvailable` flag misses auto-generated tracks, so we always attempt
+  // both URLs and return the first non-empty result.
+  const urls = [
+    `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=srv3`,
+    `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${encodeURIComponent(videoId)}&fmt=srv3`,
+  ];
 
-    // srv3 format: <p t="500" d="2100">caption text</p>
-    // `t` = start in ms, `d` = duration in ms
-    const segments: TimedTranscriptSegment[] = [];
-    const pTagRe = /<p[^>]*\bt="(\d+)"[^>]*\bd="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
-    let match: RegExpExecArray | null;
-    while ((match = pTagRe.exec(xml)) !== null) {
-      const text = decodeEntities(match[3].replace(/<[^>]+>/g, " "));
-      if (!text) continue;
-      segments.push({
-        text,
-        start_ms: parseInt(match[1], 10),
-        duration_ms: parseInt(match[2], 10),
-      });
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { next: { revalidate: 86400 } });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      if (!xml || xml.trim() === "") continue;
+      const segments = parseTimedTextSrv3(xml);
+      if (segments.length > 0) return segments;
+    } catch {
+      continue;
     }
-
-    return segments.length > 0 ? segments : null;
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 // =============================================================================
@@ -216,21 +231,30 @@ function stripXmlTags(xml: string): string {
 
 /**
  * Fetch a plain-text transcript for a YouTube video via the public timedtext API.
+ * Tries manual English captions first, then auto-generated (kind=asr) as fallback.
  * Returns null if captions are unavailable or the request fails.
  * Must be called server-side only.
  */
 export async function fetchYouTubeTranscript(videoId: string): Promise<string | null> {
-  try {
-    const url = `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=srv3`;
-    const res = await fetch(url, { next: { revalidate: 86400 } }); // cache 24h
-    if (!res.ok) return null;
-    const text = await res.text();
-    if (!text || text.trim() === "") return null;
-    const transcript = stripXmlTags(text);
-    return transcript || null;
-  } catch {
-    return null;
+  const urls = [
+    `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=srv3`,
+    `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${encodeURIComponent(videoId)}&fmt=srv3`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { next: { revalidate: 86400 } });
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text || text.trim() === "") continue;
+      const transcript = stripXmlTags(text);
+      if (transcript) return transcript;
+    } catch {
+      continue;
+    }
   }
+
+  return null;
 }
 
 // =============================================================================
