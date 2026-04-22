@@ -53,6 +53,7 @@ export default function DashboardPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddVideo, setShowAddVideo] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const [showCreatorForm, setShowCreatorForm] = useState(false);
   const [creatorName, setCreatorName] = useState("");
@@ -459,6 +460,25 @@ export default function DashboardPage() {
               key={c.id}
               content={c}
               totalTingles={heatmapTotals[c.id] ?? 0}
+              isRemoving={removingId === c.id}
+              onRemove={async () => {
+                if (!confirm(`Remove "${c.title}" from your videos? Tingle data will be preserved.`)) return;
+                setRemovingId(c.id);
+                try {
+                  const res = await fetch(`/api/content/${c.id}`, {
+                    method: "DELETE",
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                  });
+                  if (!res.ok) {
+                    const json = await res.json().catch(() => ({}));
+                    alert(json.error ?? "Failed to remove video.");
+                  } else {
+                    loadData();
+                  }
+                } finally {
+                  setRemovingId(null);
+                }
+              }}
             />
           ))}
         </div>
@@ -474,32 +494,41 @@ export default function DashboardPage() {
 function ContentCard({
   content,
   totalTingles,
+  isRemoving,
+  onRemove,
 }: {
   content: ContentRow;
   totalTingles: number;
+  isRemoving: boolean;
+  onRemove: () => void;
 }) {
   return (
-    <Link
-      href={`/dashboard/content/${content.id}`}
+    <div
       className={cn(
         "flex items-center gap-4 rounded-lg border border-surface-border bg-surface-elevated p-3",
-        "hover:border-tingle-aqua/20 transition-colors"
+        "transition-colors",
+        isRemoving && "opacity-50"
       )}
     >
-      {/* Thumbnail */}
-      {content.thumbnail_url ? (
-        // eslint-disable-next-line @next/next/no-img-element -- YouTube thumbnail, external domain not configured
-        <img
-          src={content.thumbnail_url}
-          alt=""
-          className="w-24 h-14 rounded object-cover flex-shrink-0 border border-surface-border"
-        />
-      ) : (
-        <div className="w-24 h-14 rounded bg-surface-muted/30 flex-shrink-0 border border-surface-border" />
-      )}
+      {/* Thumbnail (links to detail) */}
+      <Link href={`/dashboard/content/${content.id}`} className="flex-shrink-0">
+        {content.thumbnail_url ? (
+          // eslint-disable-next-line @next/next/no-img-element -- YouTube thumbnail, external domain not configured
+          <img
+            src={content.thumbnail_url}
+            alt=""
+            className="w-24 h-14 rounded object-cover border border-surface-border hover:opacity-80 transition-opacity"
+          />
+        ) : (
+          <div className="w-24 h-14 rounded bg-surface-muted/30 border border-surface-border" />
+        )}
+      </Link>
 
-      {/* Info */}
-      <div className="flex-1 min-w-0">
+      {/* Info (links to detail) */}
+      <Link
+        href={`/dashboard/content/${content.id}`}
+        className="flex-1 min-w-0 hover:opacity-80 transition-opacity"
+      >
         <p className="text-sm text-white truncate">{content.title}</p>
         <p className="text-xs text-surface-muted mt-0.5">
           {new Date(content.created_at).toLocaleDateString("en-US", {
@@ -508,7 +537,7 @@ function ContentCard({
             day: "numeric",
           })}
         </p>
-      </div>
+      </Link>
 
       {/* Tingle count */}
       <div className="text-right flex-shrink-0">
@@ -532,6 +561,16 @@ function ContentCard({
         )}
         {content.status}
       </span>
-    </Link>
+
+      {/* Remove button */}
+      <button
+        onClick={onRemove}
+        disabled={isRemoving}
+        title="Remove from your videos"
+        className="flex-shrink-0 rounded px-2 py-1 text-[10px] uppercase tracking-wider border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/15 disabled:opacity-40 transition-colors"
+      >
+        {isRemoving ? "…" : "Remove"}
+      </button>
+    </div>
   );
 }
