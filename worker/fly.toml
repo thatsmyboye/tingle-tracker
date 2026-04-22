@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for tingle-tracker-audio-worker on 2026-04-22T03:03:09Z
+# fly.toml app configuration file generated for tingle-tracker-audio-worker on 2026-04-22T16:03:30Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -7,7 +7,7 @@ app = 'tingle-tracker-audio-worker'
 primary_region = 'ewr'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [http_service]
   internal_port = 8000
@@ -18,11 +18,11 @@ primary_region = 'ewr'
   processes = ['app']
 
   [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    method = "GET"
-    path = "/health"
-    timeout = "5s"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
 
 [[vm]]
   cpu_kind = 'shared'
