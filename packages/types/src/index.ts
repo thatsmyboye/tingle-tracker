@@ -9,6 +9,16 @@ export type TriggerCategory = "visual" | "aural" | "tactile_adjacent";
 
 export type CreatorPlan = "free" | "pro" | "studio";
 
+export type SubscriptionStatus =
+  | "active"
+  | "trialing"
+  | "past_due"
+  | "canceled"
+  | "incomplete"
+  | "incomplete_expired"
+  | "unpaid"
+  | "paused";
+
 /** String ENUM matching Postgres tingle_intensity enum values */
 export type TingleIntensity = "1" | "2" | "3" | "4" | "5";
 
@@ -49,6 +59,10 @@ export interface Creator {
   youtube_channel_url: string | null;
   is_verified: boolean;
   plan: CreatorPlan;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  subscription_status: SubscriptionStatus | null;
+  plan_expires_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -64,8 +78,11 @@ export interface TriggerTag {
 
 export interface Content {
   id: string;
-  creator_id: string;
+  /** Null for unclaimed content (creator not yet registered) */
+  creator_id: string | null;
   youtube_video_id: string;
+  youtube_channel_id: string | null;
+  channel_title: string | null;
   title: string;
   description: string | null;
   duration_seconds: number | null;
@@ -210,6 +227,15 @@ export interface InsightReport {
     bucket_end_ms: number;
     description: string;
   }>;
+}
+
+export interface SleepSession {
+  id: string;
+  user_id: string;
+  content_id: string;
+  fell_asleep: boolean | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ---- Insert / Update helpers ------------------------------------------------

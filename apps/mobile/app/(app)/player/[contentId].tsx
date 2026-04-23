@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useNavigation } from "expo-router";
+import type { Content } from "@tingle/types";
 import { useAuthContext } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { YouTubePlayerView, type YouTubePlayerViewRef } from "@/components/YouTubePlayerView";
@@ -27,14 +28,10 @@ import { TingleHeatmap } from "@/components/TingleHeatmap";
 // For now this screen shows a running session tingle count.
 // =============================================================================
 
-interface ContentRow {
-  id: string;
-  youtube_video_id: string;
-  title: string;
-  channel_title: string | null;
-  duration_seconds: number | null;
-  creators: { display_name: string } | null;
-}
+type ContentRow = Pick<
+  Content,
+  "id" | "youtube_video_id" | "title" | "channel_title" | "duration_seconds"
+> & { creators: { display_name: string } | null };
 
 export default function PlayerScreen() {
   const { contentId } = useLocalSearchParams<{ contentId: string }>();
@@ -61,12 +58,11 @@ export default function PlayerScreen() {
       .eq("status", "ready")
       .single()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase types not generated for mobile
-      .then(({ data, error: err }: { data: any; error: any }) => {
+      .then(({ data, error: err }) => {
         if (err || !data) {
           setError(err?.message ?? "Video not found.");
         } else {
           setContent(data as ContentRow);
-          // Update the screen header title
           navigation.setOptions({ title: data.title ?? "Player" });
         }
         setLoading(false);
