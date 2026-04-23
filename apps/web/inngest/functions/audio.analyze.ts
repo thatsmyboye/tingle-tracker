@@ -41,8 +41,7 @@ const AudioFeatureWindowSchema = z.array(
 );
 
 export const audioAnalyze = inngest.createFunction(
-  { id: "audio.analyze", name: "Audio Analysis: Predict Tingle Heatmap" },
-  { event: "content/ingested" },
+  { id: "audio.analyze", name: "Audio Analysis: Predict Tingle Heatmap", triggers: [{ event: "content/ingested" }] },
   async ({ event, step }) => {
     const { contentId } = EventPayloadSchema.parse(event.data);
     const db = getSupabaseServerClient();
