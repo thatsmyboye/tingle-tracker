@@ -89,8 +89,9 @@ export const audioAnalyze = inngest.createFunction(
               youtube_video_id: contentMeta.youtube_video_id,
               duration_seconds: contentMeta.duration_seconds ?? 0,
             }),
-            // 15-minute ceiling — covers cold Fly machine start + full video download + extraction
-            signal: AbortSignal.timeout(900_000),
+            // 4-minute ceiling — fits within the route's maxDuration=300s with buffer for
+            // Inngest overhead. Fly suspend wake-up (~1s) + extraction must land under this.
+            signal: AbortSignal.timeout(240_000),
           });
 
           if (!res.ok) {
