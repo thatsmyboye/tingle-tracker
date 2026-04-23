@@ -25,8 +25,7 @@ const ClaudeMatchSchema = z.array(
 );
 
 export const contentProcess = inngest.createFunction(
-  { id: "content.process", name: "Process Content: Classify Triggers" },
-  { event: "content/ingested" },
+  { id: "content.process", name: "Process Content: Classify Triggers", triggers: [{ event: "content/ingested" }] },
   async ({ event, step }) => {
     const { contentId, creatorId } = EventPayloadSchema.parse(event.data);
     const db = getSupabaseServerClient();
