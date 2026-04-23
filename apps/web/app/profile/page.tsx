@@ -293,7 +293,7 @@ export default function ProfilePage() {
                 Discovery
               </h2>
               <p className="text-xs text-surface-muted mt-1">
-                Allow creators to see your trigger preferences (anonymised)
+                Allow creators to see your trigger preferences (anonymized)
               </p>
             </div>
             <button
