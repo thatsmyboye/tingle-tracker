@@ -71,7 +71,10 @@ export const audioAnalyze = inngest.createFunction(
       // The job proceeds with transcript-only analysis in that case.
       const audioFeatures = await step.run("extract-audio-features", async () => {
         const workerUrl = process.env.AUDIO_WORKER_URL;
-        if (!workerUrl) return null;
+        if (!workerUrl) {
+          console.log(`[audio.analyze] AUDIO_WORKER_URL not set — skipping worker for contentId=${contentId}`);
+          return null;
+        }
 
         const secret = process.env.AUDIO_WORKER_SECRET ?? "";
 
@@ -91,15 +94,20 @@ export const audioAnalyze = inngest.createFunction(
           });
 
           if (!res.ok) {
-            // Non-fatal: fall back to transcript-only
+            const body = await res.text().catch(() => "(unreadable)");
+            console.error(`[audio.analyze] worker returned HTTP ${res.status} for contentId=${contentId}: ${body.slice(0, 400)}`);
             return null;
           }
 
           const data = await res.json() as { features?: unknown };
           const parsed = AudioFeatureWindowSchema.safeParse(data.features);
-          return parsed.success ? (parsed.data as AudioFeatureWindow[]) : null;
-        } catch {
-          // Network error or timeout — proceed with transcript analysis only
+          if (!parsed.success) {
+            console.error(`[audio.analyze] worker response failed schema validation for contentId=${contentId}:`, parsed.error.flatten());
+            return null;
+          }
+          return parsed.data as AudioFeatureWindow[];
+        } catch (err) {
+          console.error(`[audio.analyze] worker fetch failed for contentId=${contentId}:`, err instanceof Error ? err.message : String(err));
           return null;
         }
       });
