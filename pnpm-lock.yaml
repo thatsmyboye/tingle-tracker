@@ -64,6 +64,9 @@ importers:
       '@babel/core':
         specifier: ^7.24.0
         version: 7.29.0
+      '@tingle/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       '@types/react':
         specifier: ^18.3.0
         version: 18.3.28
