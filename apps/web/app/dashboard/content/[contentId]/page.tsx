@@ -254,6 +254,10 @@ export default function ContentDetailPage({
       ? heatmap.reduce((sum, b) => sum + b.avg_intensity, 0) / heatmap.length
       : 0;
 
+  // When showing a predicted heatmap with no/few real listener events, label stats as "actual"
+  // so users understand the 0 / — values are real listener data, not predictions.
+  const isPredictedMode = totalTingles < 10 && visiblePredictedBuckets.length > 0;
+
   // ---- Render ----------------------------------------------------------------
 
   return (
@@ -324,8 +328,16 @@ export default function ContentDetailPage({
       {/* Stats row */}
       {content.status === "ready" && (
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <StatCard label="Total Tingles" value={totalTingles.toLocaleString()} />
-          <StatCard label="Avg Intensity" value={avgIntensity > 0 ? avgIntensity.toFixed(2) : "—"} />
+          <StatCard
+            label="Total Tingles"
+            value={totalTingles.toLocaleString()}
+            source={isPredictedMode ? "actual" : undefined}
+          />
+          <StatCard
+            label="Avg Intensity"
+            value={avgIntensity > 0 ? avgIntensity.toFixed(2) : "—"}
+            source={isPredictedMode ? "actual" : undefined}
+          />
           <StatCard label="Duration" value={formatDuration(content.duration_seconds)} />
         </div>
       )}
@@ -338,12 +350,13 @@ export default function ContentDetailPage({
           durationSeconds={content.duration_seconds}
           predictedBuckets={visiblePredictedBuckets}
           realTingleTotal={totalTingles}
+          lockedPredictedBuckets={hasLockedPredicted ? allPredictedBuckets.filter((b) => b.bucket_start_ms >= FREE_PREDICTED_CUTOFF_MS) : []}
         />
         {hasLockedPredicted && (
           <div className="mt-3 flex items-center justify-between rounded border border-tingle-gold/20 bg-tingle-gold/5 px-4 py-3">
             <div>
               <p className="font-mono text-xs text-tingle-gold">
-                AI Prediction preview — first 10 minutes shown
+                Prediction preview: First 10 minutes shown
               </p>
               <p className="font-mono text-[10px] text-surface-muted mt-0.5">
                 Upgrade to Creator Pro to unlock the full predicted heatmap
@@ -372,10 +385,24 @@ export default function ContentDetailPage({
 // StatCard
 // =============================================================================
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value, source }: { label: string; value: string; source?: "actual" | "predicted" }) {
   return (
     <div className="rounded-lg border border-surface-border bg-surface-elevated p-4">
-      <p className="text-xs uppercase tracking-widest text-surface-muted mb-1">{label}</p>
+      <div className="flex items-center gap-1.5 mb-1">
+        <p className="text-xs uppercase tracking-widest text-surface-muted">{label}</p>
+        {source && (
+          <span
+            className={cn(
+              "rounded border px-1 py-px font-mono text-[9px] uppercase tracking-wider",
+              source === "actual"
+                ? "border-tingle-aqua/20 bg-tingle-aqua/5 text-tingle-aqua/50"
+                : "border-tingle-gold/20 bg-tingle-gold/5 text-tingle-gold/50"
+            )}
+          >
+            {source}
+          </span>
+        )}
+      </div>
       <p className="text-2xl text-tingle-aqua tabular-nums">{value}</p>
     </div>
   );
