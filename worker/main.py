@@ -8,18 +8,21 @@ import numpy as np
 import librosa
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 WORKER_SECRET = os.environ.get("AUDIO_WORKER_SECRET", "")
 WINDOW_SECONDS = 30
 SR = 22050  # librosa default — 22.05 kHz mono
 
+# YouTube video IDs are always 11 characters from [A-Za-z0-9_-].
+_YOUTUBE_VIDEO_ID_RE = r"^[\w-]{11}$"
+
 app = FastAPI()
 
 
 class ExtractRequest(BaseModel):
-    youtube_video_id: str
-    duration_seconds: float
+    youtube_video_id: str = Field(..., min_length=11, max_length=11, pattern=_YOUTUBE_VIDEO_ID_RE)
+    duration_seconds: float = Field(..., ge=0, le=86400 * 48)
 
 
 @app.get("/")
@@ -39,12 +42,6 @@ def extract_audio_features(
 ) -> dict:
     if WORKER_SECRET and x_worker_secret != WORKER_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-    if not body.youtube_video_id.isalnum() and not all(
-        c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
-        for c in body.youtube_video_id
-    ):
-        raise HTTPException(status_code=422, detail="Invalid youtube_video_id")
 
     url = f"https://www.youtube.com/watch?v={body.youtube_video_id}"
 
@@ -71,8 +68,9 @@ def extract_audio_features(
         )
 
         if result.returncode != 0:
+            # 502: upstream download/extract failed — not a malformed client payload (422).
             raise HTTPException(
-                status_code=422,
+                status_code=502,
                 detail=f"yt-dlp failed: {result.stderr[:400]}",
             )
 
