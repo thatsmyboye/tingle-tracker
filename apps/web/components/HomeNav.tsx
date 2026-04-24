@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 // =============================================================================
 
 export function HomeNav() {
-  const { user, isAnonymous, isLoading } = useAuth();
+  const { user, isAnonymous, isLoading, signOut } = useAuth();
   const isAuthenticated = !!user && !isAnonymous;
 
   if (isLoading) {
@@ -45,6 +45,14 @@ export function HomeNav() {
         >
           Profile
         </Link>
+        <button
+          onClick={() => {
+            void signOut();
+          }}
+          className="text-xs text-surface-muted hover:text-tingle-aqua transition-colors"
+        >
+          Sign Out
+        </button>
       </div>
     );
   }

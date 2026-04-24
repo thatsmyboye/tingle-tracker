@@ -164,6 +164,9 @@ export function useAuth(): UseAuthReturn {
   const signOut = useCallback(async () => {
     clearStoredAnonUserId();
     await supabase.auth.signOut();
+    if (typeof window !== "undefined") {
+      window.location.assign("/");
+    }
   }, [supabase]);
 
   const isAnonymous = isAnonymousUser(user);

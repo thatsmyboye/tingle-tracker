@@ -62,7 +62,7 @@ export default function ListenPage() {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     supabase
-      .rpc("get_trending_content", { p_limit: 12 })
+      .rpc("get_trending_content", { p_limit: 6 })
       .then(({ data }) => {
         if (data) setTrending(data as TrendingItem[]);
         setTrendingLoading(false);
