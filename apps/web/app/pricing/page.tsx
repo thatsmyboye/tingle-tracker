@@ -57,7 +57,7 @@ export default function PricingPage() {
               "Offline queue (mobile)",
             ]}
             cta="Get started"
-            ctaHref="/demo"
+            ctaHref="/profile"
             ctaVariant="secondary"
           />
 
