@@ -22,6 +22,12 @@ const ResolveBodySchema = z.object({
   youtubeUrl: z.string().min(1, "youtubeUrl is required"),
 });
 
+function inferCreatorDisplayName(channelTitle: string): string {
+  const trimmed = channelTitle.trim();
+  if (!trimmed) return "ASMR Creator";
+  return trimmed.slice(0, 80);
+}
+
 export async function POST(request: Request) {
   // ---- Parse + validate body ------------------------------------------------
 
@@ -78,6 +84,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
+  // Ensure a creator row exists for this channel so trigger/discovery joins work.
+  const { data: existingCreator } = await supabase
+    .from("creators")
+    .select("id")
+    .eq("youtube_channel_id", metadata.channelId)
+    .maybeSingle();
+
+  let creatorId: string | null = existingCreator?.id ?? null;
+  if (!creatorId) {
+    const { data: createdCreator, error: creatorInsertError } = await supabase
+      .from("creators")
+      .insert({
+        // Deterministic nil UUID for system-imported/unclaimed channels.
+        user_id: "00000000-0000-0000-0000-000000000000",
+        display_name: inferCreatorDisplayName(metadata.channelTitle),
+        youtube_channel_id: metadata.channelId,
+        youtube_channel_url: `https://www.youtube.com/channel/${metadata.channelId}`,
+        is_verified: false,
+      })
+      .select("id")
+      .single();
+    if (creatorInsertError) {
+      return NextResponse.json(
+        { error: creatorInsertError.message },
+        { status: 500 }
+      );
+    }
+    creatorId = createdCreator.id;
+  }
+
   // ---- Insert unclaimed content row -----------------------------------------
   // creator_id is intentionally omitted (NULL). The channel owner can claim
   // this content later by verifying their YouTube channel in the dashboard.
@@ -85,6 +121,7 @@ export async function POST(request: Request) {
   const { data: content, error: insertError } = await supabase
     .from("content")
     .insert({
+      creator_id: creatorId,
       youtube_video_id: videoId,
       youtube_channel_id: metadata.channelId,
       channel_title: metadata.channelTitle,

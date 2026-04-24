@@ -104,6 +104,16 @@ export interface ContentTrigger {
   created_at: string;
 }
 
+export interface ContentTriggerMoment {
+  id: string;
+  content_id: string;
+  trigger_tag_id: string;
+  timestamp_ms: number;
+  confidence: number | null;
+  source: "llm" | "listener";
+  created_at: string;
+}
+
 export interface UserProfile {
   id: string;
   user_id: string;
@@ -113,6 +123,7 @@ export interface UserProfile {
   /** JSONB array of trigger_tag UUIDs */
   preferred_trigger_ids: string[];
   discovery_enabled: boolean;
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
 }

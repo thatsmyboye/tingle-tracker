@@ -29,6 +29,19 @@ interface TrendingItem {
   tingle_count: number;
 }
 
+interface DiscoveryMoment {
+  trigger_tag_id: string;
+  trigger_label: string;
+  trigger_category: "visual" | "aural" | "tactile_adjacent";
+  content_id: string;
+  content_title: string;
+  youtube_video_id: string;
+  creator_display_name: string | null;
+  confidence: number | null;
+  timestamp_ms: number;
+  lead_in_start_ms: number;
+}
+
 // ---- Helpers ----------------------------------------------------------------
 
 function formatDuration(seconds: number | null): string {
@@ -57,6 +70,10 @@ export default function ListenPage() {
   const [inputError, setInputError] = useState<string | null>(null);
   const [trending, setTrending] = useState<TrendingItem[]>([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
+  const [triggerQuery, setTriggerQuery] = useState("");
+  const [triggerResults, setTriggerResults] = useState<DiscoveryMoment[]>([]);
+  const [triggerLoading, setTriggerLoading] = useState(false);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
 
   // Fetch trending on mount
   useEffect(() => {
@@ -99,6 +116,32 @@ export default function ListenPage() {
       setInputError("Network error — please try again.");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleTriggerSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = triggerQuery.trim();
+    if (!trimmed) {
+      setTriggerError("Enter a trigger name, like whispering or tapping.");
+      return;
+    }
+    setTriggerLoading(true);
+    setTriggerError(null);
+    try {
+      const res = await fetch(`/api/discovery/triggers?q=${encodeURIComponent(trimmed)}&limit=12`);
+      const data = (await res.json()) as { results?: DiscoveryMoment[]; error?: string };
+      if (!res.ok) {
+        setTriggerError(data.error ?? "Failed to search triggers.");
+        setTriggerResults([]);
+        return;
+      }
+      setTriggerResults(data.results ?? []);
+    } catch {
+      setTriggerError("Network error while searching triggers.");
+      setTriggerResults([]);
+    } finally {
+      setTriggerLoading(false);
     }
   }
 
@@ -181,6 +224,54 @@ export default function ListenPage() {
 
       {/* Trending */}
       <section className="max-w-4xl mx-auto px-6 pb-16">
+        <div className="mb-10 rounded-lg border border-surface-border bg-surface-elevated p-4">
+          <p className="text-xs uppercase tracking-widest text-surface-muted mb-3">
+            Find by trigger
+          </p>
+          <form onSubmit={handleTriggerSearch} className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={triggerQuery}
+              onChange={(e) => {
+                setTriggerQuery(e.target.value);
+                setTriggerError(null);
+              }}
+              placeholder="Search tingles: whispering, tapping, brushing..."
+              className="flex-1 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white placeholder:text-surface-muted/50 focus:border-tingle-aqua/50 focus:outline-none focus:ring-1 focus:ring-tingle-aqua/30"
+            />
+            <button
+              type="submit"
+              disabled={triggerLoading || !triggerQuery.trim()}
+              className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40"
+            >
+              {triggerLoading ? "Searching…" : "Search"}
+            </button>
+          </form>
+          {triggerError && <p className="mt-2 text-xs text-red-400">{triggerError}</p>}
+
+          {triggerResults.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {triggerResults.map((row) => (
+                <a
+                  key={`${row.content_id}:${row.trigger_tag_id}:${row.timestamp_ms}`}
+                  href={`/listen/${row.content_id}?startMs=${row.lead_in_start_ms}`}
+                  className="flex items-center justify-between gap-3 rounded border border-surface-border bg-surface px-3 py-2 hover:border-tingle-aqua/30"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs text-white truncate">{row.content_title}</p>
+                    <p className="text-[10px] text-surface-muted truncate">
+                      {row.creator_display_name ?? "Unknown creator"} · {row.trigger_label}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-tingle-aqua tabular-nums whitespace-nowrap">
+                    Start {formatDuration(Math.floor(row.lead_in_start_ms / 1000))}
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+
         <p className="text-xs uppercase tracking-widest text-surface-muted mb-5">
           Trending this week
         </p>

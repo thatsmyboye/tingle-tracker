@@ -472,6 +472,14 @@ function ContentAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
       )}
 
       {/* Detected triggers */}
+      {report.top_triggers.length === 0 && (
+        <p className="rounded border border-surface-border bg-surface/40 px-3 py-2 text-xs text-surface-muted">
+          No trigger tags were resolved for this video yet.
+          {insights.error_message
+            ? ` Diagnostic: ${insights.error_message}`
+            : ""}
+        </p>
+      )}
       {report.top_triggers.length > 0 && (
         <div>
           <h3 className="text-xs uppercase tracking-widest text-surface-muted mb-3">Detected Triggers</h3>

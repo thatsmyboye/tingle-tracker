@@ -50,6 +50,13 @@ export interface YouTubeVideoMetadata {
   channelTitle: string;
 }
 
+export interface YouTubeChannelMetadata {
+  channelId: string;
+  title: string;
+  uploadsPlaylistId: string;
+  customUrl: string | null;
+}
+
 /** Parse ISO 8601 duration (PT1H2M3S) into total seconds */
 function parseIsoDuration(iso: string): number {
   const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -132,6 +139,91 @@ export async function fetchYouTubeMetadata(
     channelId: snippet.channelId as string,
     channelTitle: snippet.channelTitle as string,
   };
+}
+
+function extractChannelIdFromUrl(urlOrId: string): string | null {
+  const trimmed = urlOrId.trim();
+  const directIdMatch = trimmed.match(/^UC[\w-]{22}$/);
+  if (directIdMatch) return directIdMatch[0];
+  const urlMatch = trimmed.match(/youtube\.com\/channel\/(UC[\w-]{22})/i);
+  return urlMatch?.[1] ?? null;
+}
+
+function extractChannelHandleFromUrl(url: string): string | null {
+  const handleMatch = url.match(/youtube\.com\/(@[\w.-]+)/i);
+  return handleMatch?.[1] ?? null;
+}
+
+function extractChannelLegacyUsernameFromUrl(url: string): string | null {
+  const usernameMatch = url.match(/youtube\.com\/(?:c\/|user\/)([\w.-]+)/i);
+  return usernameMatch?.[1] ?? null;
+}
+
+async function youtubeGetJson(url: URL): Promise<any> {
+  const appOrigin =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "http://localhost:3000");
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 3600 },
+    headers: { Referer: appOrigin },
+  });
+  if (!res.ok) {
+    throw new Error(`YouTube API error: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function resolveYouTubeChannelMetadata(
+  channelUrlOrId: string
+): Promise<YouTubeChannelMetadata> {
+  const apiKey = process.env.YOUTUBE_DATA_API_KEY;
+  if (!apiKey) throw new Error("Missing YOUTUBE_DATA_API_KEY environment variable.");
+
+  const directChannelId = extractChannelIdFromUrl(channelUrlOrId);
+  const handle = extractChannelHandleFromUrl(channelUrlOrId);
+  const username = extractChannelLegacyUsernameFromUrl(channelUrlOrId);
+
+  const channelUrl = new URL(`${YOUTUBE_API_BASE}/channels`);
+  channelUrl.searchParams.set("part", "snippet,contentDetails");
+  channelUrl.searchParams.set("key", apiKey);
+  if (directChannelId) channelUrl.searchParams.set("id", directChannelId);
+  else if (handle) channelUrl.searchParams.set("forHandle", handle);
+  else if (username) channelUrl.searchParams.set("forUsername", username);
+  else throw new Error("Unsupported YouTube channel URL.");
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- YouTube API response is untyped
+  const data = (await youtubeGetJson(channelUrl)) as any;
+  const item = data?.items?.[0];
+  if (!item) throw new Error("Channel not found.");
+  return {
+    channelId: item.id as string,
+    title: item.snippet?.title as string,
+    uploadsPlaylistId: item.contentDetails?.relatedPlaylists?.uploads as string,
+    customUrl: (item.snippet?.customUrl as string | undefined) ?? null,
+  };
+}
+
+export async function fetchLatestVideosForChannel(
+  uploadsPlaylistId: string,
+  limit: number
+): Promise<string[]> {
+  const apiKey = process.env.YOUTUBE_DATA_API_KEY;
+  if (!apiKey) throw new Error("Missing YOUTUBE_DATA_API_KEY environment variable.");
+  const cappedLimit = Math.max(1, Math.min(limit, 50));
+  const url = new URL(`${YOUTUBE_API_BASE}/playlistItems`);
+  url.searchParams.set("part", "contentDetails");
+  url.searchParams.set("playlistId", uploadsPlaylistId);
+  url.searchParams.set("maxResults", String(cappedLimit));
+  url.searchParams.set("key", apiKey);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- YouTube API response is untyped
+  const data = (await youtubeGetJson(url)) as any;
+  const ids = (data?.items ?? [])
+    .map((item: any) => item?.contentDetails?.videoId as string | undefined)
+    .filter((id: string | undefined): id is string => !!id);
+  return Array.from(new Set(ids));
 }
 
 // =============================================================================

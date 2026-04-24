@@ -199,6 +199,51 @@ export type Database = {
           },
         ];
       };
+      content_trigger_moments: {
+        Row: {
+          id: string;
+          content_id: string;
+          trigger_tag_id: string;
+          timestamp_ms: number;
+          confidence: number | null;
+          source: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          content_id: string;
+          trigger_tag_id: string;
+          timestamp_ms: number;
+          confidence?: number | null;
+          source?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          content_id?: string;
+          trigger_tag_id?: string;
+          timestamp_ms?: number;
+          confidence?: number | null;
+          source?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "content_trigger_moments_content_id_fkey";
+            columns: ["content_id"];
+            isOneToOne: false;
+            referencedRelation: "content";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "content_trigger_moments_trigger_tag_id_fkey";
+            columns: ["trigger_tag_id"];
+            isOneToOne: false;
+            referencedRelation: "trigger_tags";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       user_profiles: {
         Row: {
           id: string;
@@ -206,6 +251,7 @@ export type Database = {
           display_name: string | null;
           avatar_url: string | null;
           is_creator: boolean;
+          is_admin: boolean;
           preferred_trigger_ids: Json;
           discovery_enabled: boolean;
           created_at: string;
@@ -217,6 +263,7 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           is_creator?: boolean;
+          is_admin?: boolean;
           preferred_trigger_ids?: Json;
           discovery_enabled?: boolean;
           created_at?: string;
@@ -228,6 +275,7 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           is_creator?: boolean;
+          is_admin?: boolean;
           preferred_trigger_ids?: Json;
           discovery_enabled?: boolean;
           created_at?: string;
