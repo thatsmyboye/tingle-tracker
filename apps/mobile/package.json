@@ -4,7 +4,7 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "postinstall": "node ../../scripts/patch-native-deps.cjs",
+    "postinstall": "node ./scripts/patch-native-deps.cjs",
     "dev": "expo start --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios",
