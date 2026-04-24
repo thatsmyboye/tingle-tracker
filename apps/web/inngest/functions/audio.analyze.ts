@@ -8,6 +8,7 @@ import {
   buildTriggerSlugResolver,
 } from "@tingle/ai";
 import { fetchYouTubeTimedTranscript } from "@/lib/youtube";
+import { parseClaudeJsonArray } from "@/lib/parseClaudeJsonArray";
 import type { PredictedHeatmapBucket, AudioFeatureWindow } from "@tingle/types";
 
 // =============================================================================
@@ -170,23 +171,14 @@ export const audioAnalyze = inngest.createFunction(
         const anthropic = getAnthropicClient();
         const message = await anthropic.messages.create({
           model: CLAUDE_MODEL,
-          max_tokens: 2048,
+          max_tokens: 8192,
           messages: [{ role: "user", content: prompt }],
         });
 
         const rawText =
           message.content[0]?.type === "text" ? message.content[0].text : "";
-        const jsonText = rawText
-          .replace(/^```(?:json)?\s*/i, "")
-          .replace(/\s*```$/i, "")
-          .trim();
 
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(jsonText);
-        } catch {
-          throw new Error(`Claude returned non-JSON: ${rawText.slice(0, 200)}`);
-        }
+        const parsed = parseClaudeJsonArray(rawText);
 
         return PredictedBucketSchema.parse(parsed);
       });

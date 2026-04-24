@@ -58,6 +58,9 @@ def extract_audio_features(
                 "--audio-format", "wav",
                 "--audio-quality", "0",
                 "--no-playlist",
+                "--retries", "10",
+                "--fragment-retries", "10",
+                "--file-access-retries", "5",
                 "--quiet",
                 "-o", output_template,
                 url,
@@ -83,11 +86,27 @@ def extract_audio_features(
     return {"features": features}
 
 
-def _extract_features_chunked(wav_path: str, duration_seconds: float) -> list[dict]:
+def _finite(x: float, default: float = 0.0) -> float:
+    """JSON must not contain NaN/Infinity — Node's JSON.parse rejects them."""
+    return float(x) if math.isfinite(x) else default
+
+
+def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -> list[dict]:
     """
     Load the WAV file in 30-second chunks so memory stays constant regardless
     of video length (~2.6 MB per chunk at 22050 Hz mono float32).
     """
+    try:
+        duration_seconds = float(librosa.get_duration(path=wav_path))
+    except Exception:
+        duration_seconds = 0.0
+
+    if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        duration_seconds = float(fallback_duration_seconds or 0)
+
+    if duration_seconds <= 0:
+        return []
+
     n_windows = math.ceil(duration_seconds / WINDOW_SECONDS)
     features = []
 
@@ -120,9 +139,9 @@ def _extract_features_chunked(wav_path: str, duration_seconds: float) -> list[di
         features.append({
             "bucket_start_ms": int(offset * 1000),
             "bucket_end_ms": int(min(offset + WINDOW_SECONDS, duration_seconds) * 1000),
-            "rms_energy": round(rms, 6),
-            "spectral_centroid": round(centroid, 2),
-            "zero_crossing_rate": round(zcr, 6),
+            "rms_energy": round(_finite(rms), 6),
+            "spectral_centroid": round(_finite(centroid), 2),
+            "zero_crossing_rate": round(_finite(zcr), 6),
         })
 
     return features
