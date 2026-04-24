@@ -14,7 +14,12 @@ from pydantic import BaseModel, Field
 
 WORKER_SECRET = os.environ.get("AUDIO_WORKER_SECRET", "")
 
-_BOT_DETECTION_PATTERN = "Sign in to confirm you're not a bot"
+# YouTube uses a curly right-single-quote (U+2019) in this message; include both
+# variants so the pattern matches regardless of yt-dlp version or locale.
+_BOT_DETECTION_PATTERNS = (
+    "Sign in to confirm you’re not a bot",
+    "Sign in to confirm you're not a bot",
+)
 
 
 def _resolve_cookies_file() -> str:
@@ -110,7 +115,7 @@ def extract_audio_features(
         if result.returncode != 0:
             err_output = result.stderr or result.stdout or ""
             err_tail = err_output[:800]
-            if _BOT_DETECTION_PATTERN in err_output:
+            if any(p in err_output for p in _BOT_DETECTION_PATTERNS):
                 log.error(
                     "yt-dlp bot-detection block youtube_video_id=%s — "
                     "set YT_DLP_COOKIES_B64 Fly secret or verify extractor-args; stderr_tail=%r",
@@ -143,12 +148,13 @@ def extract_audio_features(
 def _yt_dlp_command(output_template: str, url: str) -> list[str]:
     """Build yt-dlp argv for datacenter IPs (Fly.io EWR).
 
-    tv_embedded and android_vr clients do not require PO tokens from datacenter
-    IPs. The web client (default) does, and --js-runtimes node was enabling it.
+    ios and mweb clients do not require PO tokens from datacenter IPs.
+    tv_embedded was removed from yt-dlp; android_vr alone triggers bot detection.
+    If these still fail, set YT_DLP_COOKIES_B64 with exported browser cookies.
     """
     args: list[str] = [
         "yt-dlp",
-        "--extractor-args", "youtube:player_client=tv_embedded,android_vr",
+        "--extractor-args", "youtube:player_client=ios,mweb",
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",

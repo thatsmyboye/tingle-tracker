@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-# ffmpeg: WAV conversion. nodejs: yt-dlp YouTube EJS (without it, only android_vr
-# clients run and metadata/formats are degraded; see yt-dlp wiki/EJS).
+# ffmpeg: WAV conversion. nodejs: yt-dlp YouTube EJS extractor (enables ios/mweb
+# clients and improves format/metadata quality; see yt-dlp wiki/EJS).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     nodejs \
