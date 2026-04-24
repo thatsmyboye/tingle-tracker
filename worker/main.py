@@ -1,9 +1,9 @@
+import base64
 import os
 import tempfile
 import subprocess
 import math
 import logging
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -13,11 +13,44 @@ from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 
 WORKER_SECRET = os.environ.get("AUDIO_WORKER_SECRET", "")
-# Netscape-format cookies file (e.g. from browser export). Required for many
-# Fly/datacenter IPs when YouTube returns "Sign in to confirm you're not a bot".
-_YT_DLP_COOKIES_FILE = os.environ.get("YT_DLP_COOKIES_FILE") or os.environ.get(
-    "YT_DLP_COOKIES_PATH", ""
-)
+
+_BOT_DETECTION_PATTERN = "Sign in to confirm you're not a bot"
+
+
+def _resolve_cookies_file() -> str:
+    """Return path to a readable Netscape-format cookies file, or empty string.
+
+    Priority:
+      1. YT_DLP_COOKIES_B64 — base64-encoded file content (Fly.io secret pattern:
+         fly secrets set YT_DLP_COOKIES_B64="$(base64 -w0 cookies.txt)")
+      2. YT_DLP_COOKIES_FILE / YT_DLP_COOKIES_PATH — direct filesystem path
+    """
+    b64 = os.environ.get("YT_DLP_COOKIES_B64", "").strip()
+    if b64:
+        try:
+            decoded = base64.b64decode(b64)
+        except Exception as exc:
+            logging.getLogger("tingle_audio_worker").warning(
+                "YT_DLP_COOKIES_B64 is set but not valid base64: %s", exc
+            )
+        else:
+            dest = Path("/tmp/yt_dlp_cookies.txt")
+            dest.write_bytes(decoded)
+            return str(dest)
+
+    path_str = os.environ.get("YT_DLP_COOKIES_FILE") or os.environ.get(
+        "YT_DLP_COOKIES_PATH", ""
+    )
+    if path_str:
+        if Path(path_str).is_file():
+            return path_str
+        logging.getLogger("tingle_audio_worker").warning(
+            "YT_DLP_COOKIES_FILE set but not a readable file: %s", path_str
+        )
+    return ""
+
+
+_YT_DLP_COOKIES_FILE: str = _resolve_cookies_file()
 WINDOW_SECONDS = 30
 SR = 22050  # librosa default — 22.05 kHz mono
 
@@ -75,13 +108,22 @@ def extract_audio_features(
             ) from None
 
         if result.returncode != 0:
-            err_tail = (result.stderr or result.stdout or "")[:800]
-            log.warning(
-                "yt-dlp failed rc=%s youtube_video_id=%s stderr_tail=%r",
-                result.returncode,
-                body.youtube_video_id,
-                err_tail,
-            )
+            err_output = result.stderr or result.stdout or ""
+            err_tail = err_output[:800]
+            if _BOT_DETECTION_PATTERN in err_output:
+                log.error(
+                    "yt-dlp bot-detection block youtube_video_id=%s — "
+                    "set YT_DLP_COOKIES_B64 Fly secret or verify extractor-args; stderr_tail=%r",
+                    body.youtube_video_id,
+                    err_tail,
+                )
+            else:
+                log.warning(
+                    "yt-dlp failed rc=%s youtube_video_id=%s stderr_tail=%r",
+                    result.returncode,
+                    body.youtube_video_id,
+                    err_tail,
+                )
             # 502: upstream download/extract failed — not a malformed client payload (422).
             raise HTTPException(
                 status_code=502,
@@ -99,9 +141,14 @@ def extract_audio_features(
 
 
 def _yt_dlp_command(output_template: str, url: str) -> list[str]:
-    """Build yt-dlp argv; prefers Node EJS when available, optional cookies for DC IPs."""
+    """Build yt-dlp argv for datacenter IPs (Fly.io EWR).
+
+    tv_embedded and android_vr clients do not require PO tokens from datacenter
+    IPs. The web client (default) does, and --js-runtimes node was enabling it.
+    """
     args: list[str] = [
         "yt-dlp",
+        "--extractor-args", "youtube:player_client=tv_embedded,android_vr",
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
@@ -112,17 +159,8 @@ def _yt_dlp_command(output_template: str, url: str) -> list[str]:
         "--quiet",
         "-o", output_template,
     ]
-    if shutil.which("node"):
-        args.extend(["--js-runtimes", "node"])
-    if _YT_DLP_COOKIES_FILE:
-        cookie_path = Path(_YT_DLP_COOKIES_FILE)
-        if cookie_path.is_file():
-            args.extend(["--cookies", str(cookie_path)])
-        else:
-            log.warning(
-                "YT_DLP_COOKIES_FILE set but not a readable file: %s",
-                _YT_DLP_COOKIES_FILE,
-            )
+    if _YT_DLP_COOKIES_FILE and Path(_YT_DLP_COOKIES_FILE).is_file():
+        args.extend(["--cookies", _YT_DLP_COOKIES_FILE])
     args.append(url)
     return args
 
