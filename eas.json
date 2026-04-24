@@ -7,7 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "config": ".eas/build/base.yml",
+      "config": "base.yml",
       "ios": {
         "simulator": true
       },
@@ -17,7 +17,7 @@
     },
     "preview": {
       "distribution": "internal",
-      "config": ".eas/build/base.yml",
+      "config": "base.yml",
       "ios": {
         "simulator": false
       },
@@ -27,7 +27,7 @@
     },
     "production": {
       "autoIncrement": true,
-      "config": ".eas/build/base.yml",
+      "config": "base.yml",
       "credentialsSource": "remote",
       "ios": {
         "simulator": false
