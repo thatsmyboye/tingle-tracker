@@ -1,9 +1,17 @@
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
 import { getSupabaseServerClient } from "@tingle/database";
-import { getAnthropicClient, CLAUDE_MODEL, buildTriggerClassificationPrompt, buildContentNarrativePrompt } from "@tingle/ai";
+import {
+  getAnthropicClient,
+  CLAUDE_MODEL,
+  buildTriggerClassificationPrompt,
+  buildContentNarrativePrompt,
+  buildContentListenerProfilePrompt,
+  buildTriggerSlugResolver,
+  normalizeTriggerSlug,
+} from "@tingle/ai";
 import { fetchYouTubeTimedTranscript, fetchYouTubeTranscript } from "@/lib/youtube";
-import type { InsightReport } from "@tingle/types";
+import type { InsightReport, ListenerProfile, NarrativeInputSource } from "@tingle/types";
 
 // =============================================================================
 // content.process
@@ -30,6 +38,13 @@ const ClaudeResponseSchema = z.union([
     matches: ClaudeMatchSchema,
   }),
 ]);
+
+const ListenerProfileSchema = z.object({
+  style_genre: z.array(z.string()).max(8),
+  vocal_style: z.array(z.string()).max(8),
+  background_music: z.enum(["none", "detected", "unclear"]),
+  notes: z.string().max(400).optional(),
+});
 
 export const contentProcess = inngest.createFunction(
   { id: "content.process", name: "Process Content: Classify Triggers", triggers: [{ event: "content/ingested" }] },
@@ -77,17 +92,16 @@ export const contentProcess = inngest.createFunction(
         return fetchYouTubeTimedTranscript(content.youtube_video_id);
       });
 
-      // ---- 3. Fetch content row + all trigger tags ----------------------------
-      const { content, triggerTags } = await step.run("fetch-trigger-tags", async () => {
-        const [contentRes, tagsRes] = await Promise.all([
+      // ---- 3. Fetch content row + trigger tags + aliases ---------------------
+      const { content, triggerTags, tagAliases } = await step.run("fetch-trigger-tags", async () => {
+        const [contentRes, tagsRes, aliasesRes] = await Promise.all([
           db
             .from("content")
             .select("id, title, description")
             .eq("id", contentId)
             .single(),
-          db
-            .from("trigger_tags")
-            .select("id, label, slug, category"),
+          db.from("trigger_tags").select("id, label, slug, category, display_group"),
+          db.from("trigger_tag_aliases").select("alias_slug, trigger_tag_id"),
         ]);
 
         if (contentRes.error || !contentRes.data) {
@@ -96,9 +110,27 @@ export const contentProcess = inngest.createFunction(
         if (tagsRes.error) {
           throw new Error(`Failed to fetch trigger tags: ${tagsRes.error.message}`);
         }
+        if (aliasesRes.error) {
+          throw new Error(`Failed to fetch trigger tag aliases: ${aliasesRes.error.message}`);
+        }
 
-        return { content: contentRes.data, triggerTags: tagsRes.data ?? [] };
+        return {
+          content: contentRes.data,
+          triggerTags: tagsRes.data ?? [],
+          tagAliases: aliasesRes.data ?? [],
+        };
       });
+
+      const aliasSlugsByTagId: Record<string, string[]> = {};
+      for (const row of tagAliases) {
+        const norm = normalizeTriggerSlug(row.alias_slug);
+        if (!norm) continue;
+        const list = aliasSlugsByTagId[row.trigger_tag_id] ?? [];
+        list.push(norm);
+        aliasSlugsByTagId[row.trigger_tag_id] = list;
+      }
+
+      const slugResolver = buildTriggerSlugResolver(triggerTags, tagAliases);
 
       // ---- 4. Classify with Claude --------------------------------------------
       const claudeMatches = await step.run("classify-with-claude", async () => {
@@ -107,6 +139,7 @@ export const contentProcess = inngest.createFunction(
           description: content.description ?? null,
           transcript: transcript ?? null,
           availableTags: triggerTags,
+          aliasSlugsByTagId,
         });
 
         console.log(`[content.process] classifying contentId=${contentId} tags=${triggerTags.length} transcriptChars=${transcript?.length ?? 0}`);
@@ -134,12 +167,23 @@ export const contentProcess = inngest.createFunction(
         return Array.isArray(parsedResponse) ? parsedResponse : parsedResponse.matches;
       });
 
-      // ---- 5. Resolve slugs → tag UUIDs --------------------------------------
+      // ---- 5. Resolve slugs → tag UUIDs (canonical + aliases) ------------------
+      type ResolvedRow = {
+        content_id: string;
+        trigger_tag_id: string;
+        source: "llm";
+        confidence: number;
+        _label: string;
+        _category: "visual" | "aural" | "tactile_adjacent";
+        _display_group: string;
+        _reasoning: string;
+        _timestamps: number[];
+      };
+
       const resolvedTriggers = await step.run("resolve-tag-ids", async () => {
-        const slugToTag = new Map(triggerTags.map((t) => [t.slug.trim().toLowerCase(), t]));
-        return claudeMatches
+        const mapped = claudeMatches
           .map((match) => {
-            const tag = slugToTag.get(match.slug.trim().toLowerCase());
+            const tag = slugResolver.resolve(match.slug);
             if (!tag) return null;
             return {
               content_id: contentId,
@@ -148,16 +192,24 @@ export const contentProcess = inngest.createFunction(
               confidence: match.confidence,
               _label: tag.label,
               _category: tag.category as "visual" | "aural" | "tactile_adjacent",
+              _display_group: tag.display_group ?? "sensory",
               _reasoning: match.reasoning,
               _timestamps: inferTimestampsFromTimedTranscript(timedTranscript, tag.label, tag.slug),
             };
           })
           .filter((t): t is NonNullable<typeof t> => t !== null);
+
+        const byTag = new Map<string, ResolvedRow>();
+        for (const row of mapped) {
+          const prev = byTag.get(row.trigger_tag_id);
+          if (!prev || row.confidence > prev.confidence) {
+            byTag.set(row.trigger_tag_id, row);
+          }
+        }
+        return [...byTag.values()];
       });
 
-      const unresolvedMatches = claudeMatches.filter(
-        (match) => !triggerTags.some((tag) => tag.slug.trim().toLowerCase() === match.slug.trim().toLowerCase())
-      );
+      const unresolvedMatches = claudeMatches.filter((match) => slugResolver.resolve(match.slug) === null);
       if (unresolvedMatches.length > 0) {
         console.warn(
           `[content.process] unresolved slugs for contentId=${contentId}: ${unresolvedMatches
@@ -170,7 +222,9 @@ export const contentProcess = inngest.createFunction(
       await step.run("upsert-content-triggers", async () => {
         if (resolvedTriggers.length === 0) return;
 
-        const rows = resolvedTriggers.map(({ _label: _l, _category: _c, _reasoning: _r, _timestamps: _t, ...row }) => row);
+        const rows = resolvedTriggers.map(
+          ({ _label: _l, _category: _c, _display_group: _d, _reasoning: _r, _timestamps: _t, ...row }) => row
+        );
 
         const { error } = await db
           .from("content_triggers")
@@ -225,21 +279,74 @@ export const contentProcess = inngest.createFunction(
         return text;
       });
 
+      const listenerProfile = await step.run("generate-listener-profile", async () => {
+        const labels = resolvedTriggers
+          .sort((a, b) => b.confidence - a.confidence)
+          .map((t) => t._label);
+
+        const prompt = buildContentListenerProfilePrompt({
+          title: content.title,
+          description: content.description ?? null,
+          transcript: transcript ?? null,
+          resolvedTriggerLabels: labels,
+        });
+
+        const anthropic = getAnthropicClient();
+        const message = await anthropic.messages.create({
+          model: CLAUDE_MODEL,
+          max_tokens: 512,
+          messages: [{ role: "user", content: prompt }],
+        });
+
+        const rawText =
+          message.content[0]?.type === "text" ? message.content[0].text : "";
+        const jsonText = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(jsonText);
+        } catch {
+          console.warn(
+            `[content.process] listener profile non-JSON for contentId=${contentId}: ${rawText.slice(0, 120)}`
+          );
+          return null;
+        }
+
+        const parsedProfile = ListenerProfileSchema.safeParse(parsed);
+        if (!parsedProfile.success) {
+          console.warn(`[content.process] listener profile schema fail contentId=${contentId}`);
+          return null;
+        }
+
+        const p = parsedProfile.data;
+        const profile: ListenerProfile = {
+          style_genre: [...new Set(p.style_genre.map((s) => s.trim()).filter(Boolean))].slice(0, 8),
+          vocal_style: [...new Set(p.vocal_style.map((s) => s.trim()).filter(Boolean))].slice(0, 8),
+          background_music: p.background_music,
+          notes: p.notes?.trim() || undefined,
+        };
+        return profile;
+      });
+
       // ---- 8. Write insights_cache -------------------------------------------
       await step.run("cache-insights", async () => {
         const sortedTriggers = resolvedTriggers.sort((a, b) => b.confidence - a.confidence);
+        const narrativeInputSource: NarrativeInputSource = transcript ? "transcript" : "title_description_only";
+
         const report: InsightReport = {
           generated_at: new Date().toISOString(),
           content_id: contentId,
           summary: `Identified ${resolvedTriggers.length} ASMR trigger${resolvedTriggers.length !== 1 ? "s" : ""} in this video.`,
           transcript_analysis: narrativeText ?? undefined,
-          audio_source: "transcript_analysis",
+          narrative_input_source: narrativeInputSource,
+          listener_profile: listenerProfile ?? undefined,
           top_triggers: sortedTriggers
             .slice(0, 10)
             .map((t) => ({
               trigger_tag_id: t.trigger_tag_id,
               label: t._label,
               category: t._category,
+              display_group: t._display_group,
               confidence: t.confidence,
               timestamp_examples_ms: t._timestamps.slice(0, 5).map((ts) => Math.max(0, ts - 5000)),
             })),
