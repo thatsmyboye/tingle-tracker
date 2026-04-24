@@ -214,7 +214,20 @@ export interface PredictedHeatmapBucket {
 export interface InsightReport {
   generated_at: string;
   content_id: string;
+  /** One-sentence fallback summary (legacy / short form) */
   summary: string;
+  /**
+   * Claude-authored narrative paragraph describing the video's ASMR character,
+   * based on transcript and/or audio features. Available on reports generated
+   * after the transcript_analysis pipeline was introduced.
+   */
+  transcript_analysis?: string;
+  /**
+   * Which pipeline produced the analysis.
+   * "transcript_analysis" = captions/title only (Python worker unavailable).
+   * "audio_features" = acoustic features from the Python worker were used.
+   */
+  audio_source?: "transcript_analysis" | "audio_features";
   top_triggers: Array<{
     trigger_tag_id: string;
     label: string;
