@@ -2,7 +2,7 @@ import { z } from "zod";
 import { inngest } from "@/inngest/client";
 import { getSupabaseServerClient } from "@tingle/database";
 import { getAnthropicClient, CLAUDE_MODEL, buildTriggerClassificationPrompt, buildContentNarrativePrompt } from "@tingle/ai";
-import { fetchYouTubeTranscript } from "@/lib/youtube";
+import { fetchYouTubeTimedTranscript, fetchYouTubeTranscript } from "@/lib/youtube";
 import type { InsightReport } from "@tingle/types";
 
 // =============================================================================
@@ -24,6 +24,13 @@ const ClaudeMatchSchema = z.array(
   })
 );
 
+const ClaudeResponseSchema = z.union([
+  ClaudeMatchSchema,
+  z.object({
+    matches: ClaudeMatchSchema,
+  }),
+]);
+
 export const contentProcess = inngest.createFunction(
   { id: "content.process", name: "Process Content: Classify Triggers", triggers: [{ event: "content/ingested" }] },
   async ({ event, step }) => {
@@ -32,11 +39,18 @@ export const contentProcess = inngest.createFunction(
 
     // ---- 1. Mark as processing -----------------------------------------------
     await step.run("update-status-processing", async () => {
-      const { error } = await db
-        .from("content")
-        .update({ status: "processing" })
-        .eq("id", contentId);
+      const [contentRes, insightRes] = await Promise.all([
+        db.from("content").update({ status: "processing" }).eq("id", contentId),
+        db
+          .from("insights_cache")
+          .upsert(
+            { content_id: contentId, status: "generating", error_message: null },
+            { onConflict: "content_id" }
+          ),
+      ]);
+      const { error } = contentRes;
       if (error) throw new Error(`Failed to update content status: ${error.message}`);
+      if (insightRes.error) throw new Error(`Failed to set insights status: ${insightRes.error.message}`);
     });
 
     try {
@@ -52,6 +66,15 @@ export const contentProcess = inngest.createFunction(
 
         if (!content) return null;
         return fetchYouTubeTranscript(content.youtube_video_id);
+      });
+      const timedTranscript = await step.run("fetch-timed-transcript", async () => {
+        const { data: content } = await db
+          .from("content")
+          .select("youtube_video_id")
+          .eq("id", contentId)
+          .single();
+        if (!content) return null;
+        return fetchYouTubeTimedTranscript(content.youtube_video_id);
       });
 
       // ---- 3. Fetch content row + all trigger tags ----------------------------
@@ -86,6 +109,7 @@ export const contentProcess = inngest.createFunction(
           availableTags: triggerTags,
         });
 
+        console.log(`[content.process] classifying contentId=${contentId} tags=${triggerTags.length} transcriptChars=${transcript?.length ?? 0}`);
         const anthropic = getAnthropicClient();
         const message = await anthropic.messages.create({
           model: CLAUDE_MODEL,
@@ -106,15 +130,16 @@ export const contentProcess = inngest.createFunction(
           throw new Error(`Claude returned non-JSON: ${rawText.slice(0, 200)}`);
         }
 
-        return ClaudeMatchSchema.parse(parsed);
+        const parsedResponse = ClaudeResponseSchema.parse(parsed);
+        return Array.isArray(parsedResponse) ? parsedResponse : parsedResponse.matches;
       });
 
       // ---- 5. Resolve slugs → tag UUIDs --------------------------------------
       const resolvedTriggers = await step.run("resolve-tag-ids", async () => {
-        const slugToTag = new Map(triggerTags.map((t) => [t.slug, t]));
+        const slugToTag = new Map(triggerTags.map((t) => [t.slug.trim().toLowerCase(), t]));
         return claudeMatches
           .map((match) => {
-            const tag = slugToTag.get(match.slug);
+            const tag = slugToTag.get(match.slug.trim().toLowerCase());
             if (!tag) return null;
             return {
               content_id: contentId,
@@ -124,22 +149,54 @@ export const contentProcess = inngest.createFunction(
               _label: tag.label,
               _category: tag.category as "visual" | "aural" | "tactile_adjacent",
               _reasoning: match.reasoning,
+              _timestamps: inferTimestampsFromTimedTranscript(timedTranscript, tag.label, tag.slug),
             };
           })
           .filter((t): t is NonNullable<typeof t> => t !== null);
       });
 
+      const unresolvedMatches = claudeMatches.filter(
+        (match) => !triggerTags.some((tag) => tag.slug.trim().toLowerCase() === match.slug.trim().toLowerCase())
+      );
+      if (unresolvedMatches.length > 0) {
+        console.warn(
+          `[content.process] unresolved slugs for contentId=${contentId}: ${unresolvedMatches
+            .map((m) => m.slug)
+            .join(", ")}`
+        );
+      }
+
       // ---- 6. Upsert content_triggers ----------------------------------------
       await step.run("upsert-content-triggers", async () => {
         if (resolvedTriggers.length === 0) return;
 
-        const rows = resolvedTriggers.map(({ _label: _l, _category: _c, _reasoning: _r, ...row }) => row);
+        const rows = resolvedTriggers.map(({ _label: _l, _category: _c, _reasoning: _r, _timestamps: _t, ...row }) => row);
 
         const { error } = await db
           .from("content_triggers")
           .upsert(rows, { onConflict: "content_id,trigger_tag_id" });
 
         if (error) throw new Error(`Failed to upsert content_triggers: ${error.message}`);
+      });
+
+      await step.run("upsert-trigger-moments", async () => {
+        if (resolvedTriggers.length === 0) return;
+        const rows = resolvedTriggers.flatMap((trigger) =>
+          trigger._timestamps.map((timestamp) => ({
+            content_id: contentId,
+            trigger_tag_id: trigger.trigger_tag_id,
+            timestamp_ms: Math.max(0, timestamp - 5000),
+            confidence: trigger.confidence,
+            source: "llm" as const,
+          }))
+        );
+        if (rows.length === 0) return;
+        const { error } = await db
+          .from("content_trigger_moments")
+          .upsert(rows, {
+            onConflict: "content_id,trigger_tag_id,timestamp_ms",
+          });
+        if (error) throw new Error(`Failed to upsert content_trigger_moments: ${error.message}`);
       });
 
       // ---- 7. Generate Claude narrative paragraph ----------------------------
@@ -184,7 +241,7 @@ export const contentProcess = inngest.createFunction(
               label: t._label,
               category: t._category,
               confidence: t.confidence,
-              timestamp_examples_ms: [],
+              timestamp_examples_ms: t._timestamps.slice(0, 5).map((ts) => Math.max(0, ts - 5000)),
             })),
           heatmap_highlights: [],
         };
@@ -198,7 +255,10 @@ export const contentProcess = inngest.createFunction(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any -- InsightReport lacks Supabase Json index signature
               report: report as any,
               generated_at: report.generated_at,
-              error_message: null,
+              error_message:
+                resolvedTriggers.length === 0 && unresolvedMatches.length > 0
+                  ? `Claude returned ${unresolvedMatches.length} trigger slug(s) not found in trigger_tags.`
+                  : null,
             },
             { onConflict: "content_id" }
           );
@@ -232,3 +292,30 @@ export const contentProcess = inngest.createFunction(
     }
   }
 );
+
+function inferTimestampsFromTimedTranscript(
+  timedTranscript: Array<{ text: string; start_ms: number }> | null,
+  label: string,
+  slug: string
+): number[] {
+  if (!timedTranscript || timedTranscript.length === 0) return [];
+  const labelNeedles = label
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const slugNeedles = slug
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const needles = new Set([...labelNeedles, ...slugNeedles]);
+  if (needles.size === 0) return [];
+  const hits = timedTranscript
+    .filter((segment) => {
+      const lower = segment.text.toLowerCase();
+      return [...needles].some((needle) => lower.includes(needle));
+    })
+    .slice(0, 5)
+    .map((segment) => segment.start_ms);
+  return Array.from(new Set(hits));
+}

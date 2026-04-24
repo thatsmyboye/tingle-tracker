@@ -16,6 +16,7 @@ import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
 import { useAuth } from "@/hooks/useAuth";
 import type { InsightReport } from "@tingle/types";
+import type { BatchLinkPreview, BatchRunResult } from "@/app/api/admin/batch-analysis/shared";
 
 // ---- Local types ------------------------------------------------------------
 
@@ -40,6 +41,15 @@ interface AdminInsight {
   report: InsightReport | null;
   error_message: string | null;
   generated_at: string | null;
+}
+
+interface BatchPreviewResponse {
+  items: BatchLinkPreview[];
+}
+
+interface BatchRunResponse {
+  results: BatchRunResult[];
+  queued: number;
 }
 
 // ---- Style maps -------------------------------------------------------------
@@ -78,62 +88,68 @@ export default function AdminPage() {
 
   // Track which insight panels are expanded
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [batchLinksText, setBatchLinksText] = useState("");
+  const [latestVideoCount, setLatestVideoCount] = useState(20);
+  const [batchPreview, setBatchPreview] = useState<BatchLinkPreview[]>([]);
+  const [batchPreviewLoading, setBatchPreviewLoading] = useState(false);
+  const [batchRunLoading, setBatchRunLoading] = useState(false);
+  const [batchRunResult, setBatchRunResult] = useState<BatchRunResponse | null>(null);
+
+  async function loadAdminData() {
+    if (!user) return;
+    const supabase = getSupabaseBrowserClient();
+    setLoadingData(true);
+
+    // First check admin flag
+    const { data: profileData } = await supabase
+      .from("user_profiles")
+      .select("is_admin")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const adminFlag = !!(profileData as any)?.is_admin;
+    setIsAdmin(adminFlag);
+
+    if (!adminFlag) {
+      setLoadingData(false);
+      return;
+    }
+
+    // Load all data in parallel
+    const [creatorsRes, contentRes, insightsRes] = await Promise.all([
+      supabase
+        .from("creators")
+        .select("id, display_name, youtube_channel_id")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("content")
+        .select("id, creator_id, title, youtube_video_id, status, created_at")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("insights_cache")
+        .select("content_id, status, report, error_message, generated_at"),
+    ]);
+
+    if (creatorsRes.error) { setError(creatorsRes.error.message); setLoadingData(false); return; }
+    if (contentRes.error) { setError(contentRes.error.message); setLoadingData(false); return; }
+    if (insightsRes.error) { setError(insightsRes.error.message); setLoadingData(false); return; }
+
+    setCreators((creatorsRes.data ?? []) as AdminCreator[]);
+    setContent((contentRes.data ?? []) as AdminContent[]);
+
+    const insightMap: Record<string, AdminInsight> = {};
+    for (const row of insightsRes.data ?? []) {
+      if (row.content_id) {
+        insightMap[row.content_id] = row as AdminInsight;
+      }
+    }
+    setInsights(insightMap);
+    setLoadingData(false);
+  }
 
   useEffect(() => {
     if (authLoading || !user) return;
-
-    const supabase = getSupabaseBrowserClient();
-
-    async function loadAdminData() {
-      setLoadingData(true);
-
-      // First check admin flag
-      const { data: profileData } = await supabase
-        .from("user_profiles")
-        .select("is_admin")
-        .eq("user_id", user!.id)
-        .maybeSingle();
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const adminFlag = !!(profileData as any)?.is_admin;
-      setIsAdmin(adminFlag);
-
-      if (!adminFlag) {
-        setLoadingData(false);
-        return;
-      }
-
-      // Load all data in parallel
-      const [creatorsRes, contentRes, insightsRes] = await Promise.all([
-        supabase
-          .from("creators")
-          .select("id, display_name, youtube_channel_id")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("content")
-          .select("id, creator_id, title, youtube_video_id, status, created_at")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("insights_cache")
-          .select("content_id, status, report, error_message, generated_at"),
-      ]);
-
-      if (creatorsRes.error) { setError(creatorsRes.error.message); setLoadingData(false); return; }
-      if (contentRes.error) { setError(contentRes.error.message); setLoadingData(false); return; }
-      if (insightsRes.error) { setError(insightsRes.error.message); setLoadingData(false); return; }
-
-      setCreators((creatorsRes.data ?? []) as AdminCreator[]);
-      setContent((contentRes.data ?? []) as AdminContent[]);
-
-      const insightMap: Record<string, AdminInsight> = {};
-      for (const row of insightsRes.data ?? []) {
-        if (row.content_id) {
-          insightMap[row.content_id] = row as AdminInsight;
-        }
-      }
-      setInsights(insightMap);
-      setLoadingData(false);
-    }
 
     loadAdminData().catch((err: unknown) => {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -195,6 +211,68 @@ export default function AdminPage() {
     (i) => i.status === "pending" || i.status === "generating",
   ).length;
   const errorCount = insightList.filter((i) => i.status === "error").length;
+  const parsedLinks = batchLinksText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+  async function loadBatchPreview() {
+    if (parsedLinks.length === 0) {
+      setBatchPreview([]);
+      return;
+    }
+    setBatchPreviewLoading(true);
+    setError(null);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Missing access token.");
+      const res = await fetch("/api/admin/batch-analysis/preview", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ links: parsedLinks, latestVideoCount }),
+      });
+      const json = (await res.json()) as BatchPreviewResponse & { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to preview links.");
+      setBatchPreview(json.items);
+      setBatchRunResult(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to preview links");
+    } finally {
+      setBatchPreviewLoading(false);
+    }
+  }
+
+  async function runBatchAnalysis() {
+    if (parsedLinks.length === 0) return;
+    setBatchRunLoading(true);
+    setError(null);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Missing access token.");
+      const res = await fetch("/api/admin/batch-analysis", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ links: parsedLinks, latestVideoCount }),
+      });
+      const json = (await res.json()) as BatchRunResponse & { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to run batch analysis.");
+      setBatchRunResult(json);
+      await loadAdminData();
+      setBatchLinksText("");
+      setBatchPreview([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to run batch analysis");
+    } finally {
+      setBatchRunLoading(false);
+    }
+  }
 
   // ---- Main view ------------------------------------------------------------
 
@@ -221,6 +299,88 @@ export default function AdminPage() {
         <Stat label="Processing" value={pendingCount} color="tingle-gold" />
         <Stat label="Errors" value={errorCount} color="red" />
       </div>
+
+      {/* Batch analysis tool */}
+      <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+        <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-3">Batch Analysis</h2>
+        <p className="text-xs text-surface-muted mb-3">
+          Paste one link per line (YouTube video or ASMR-only channel URLs). Channel links expand to latest N videos.
+        </p>
+        <textarea
+          value={batchLinksText}
+          onChange={(e) => setBatchLinksText(e.target.value)}
+          placeholder={"https://www.youtube.com/watch?v=...\nhttps://www.youtube.com/@asmrcreator"}
+          className="w-full min-h-28 rounded border border-surface-border bg-surface px-3 py-2 text-xs text-white placeholder:text-surface-muted/60"
+        />
+        <div className="mt-3 flex items-center gap-3">
+          <label className="text-xs text-surface-muted">
+            Latest N videos:
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={latestVideoCount}
+              onChange={(e) => setLatestVideoCount(Number(e.target.value || 20))}
+              className="ml-2 w-16 rounded border border-surface-border bg-surface px-2 py-1 text-xs text-white"
+            />
+          </label>
+          <button
+            onClick={loadBatchPreview}
+            disabled={batchPreviewLoading || parsedLinks.length === 0}
+            className="rounded border border-surface-border px-3 py-1.5 text-xs text-surface-muted hover:text-tingle-aqua disabled:opacity-40"
+          >
+            {batchPreviewLoading ? "Previewing..." : "Preview"}
+          </button>
+          <button
+            onClick={runBatchAnalysis}
+            disabled={batchRunLoading || parsedLinks.length === 0}
+            className="rounded border border-tingle-aqua/40 bg-tingle-aqua/10 px-3 py-1.5 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40"
+          >
+            {batchRunLoading ? "Running..." : "Run batch analysis"}
+          </button>
+        </div>
+
+        {batchPreview.length > 0 && (
+          <div className="mt-4 rounded border border-surface-border bg-surface p-3">
+            <p className="text-[10px] uppercase tracking-wider text-surface-muted mb-2">Preview</p>
+            <div className="space-y-1.5">
+              {batchPreview.map((item) => (
+                <div key={`${item.input_link}-${item.resolved_video_id ?? item.reason ?? "x"}`} className="text-xs text-surface-muted">
+                  <span className="text-white">{item.input_link}</span>{" "}
+                  <span>→ {item.status}</span>
+                  {item.resolved_video_id && <span> ({item.resolved_video_id})</span>}
+                  {item.reason && <span> — {item.reason}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {batchRunResult && (
+          <div className="mt-4 rounded border border-tingle-aqua/30 bg-tingle-aqua/5 p-3">
+            <p className="text-xs text-tingle-aqua mb-2">
+              Queued {batchRunResult.queued} item{batchRunResult.queued !== 1 ? "s" : ""}.
+            </p>
+            <div className="space-y-1">
+              {batchRunResult.results.map((item) => (
+                <div key={`${item.input_link}-${item.resolved_video_id ?? item.reason ?? "x"}`} className="text-xs text-surface-muted">
+                  <span className="text-white">{item.input_link}</span>{" "}
+                  <span>→ {item.status}</span>
+                  {item.content_id && (
+                    <Link
+                      href={`/dashboard/content/${item.content_id}`}
+                      className="ml-2 text-tingle-aqua hover:underline"
+                    >
+                      Open content
+                    </Link>
+                  )}
+                  {item.reason && <span> — {item.reason}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Creator list */}
       {creators.length === 0 ? (
