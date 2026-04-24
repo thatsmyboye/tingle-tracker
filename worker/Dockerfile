@@ -1,8 +1,10 @@
 FROM python:3.11-slim
 
-# ffmpeg is required by yt-dlp for audio format conversion to WAV
+# ffmpeg: WAV conversion. nodejs: yt-dlp YouTube EJS (without it, only android_vr
+# clients run and metadata/formats are degraded; see yt-dlp wiki/EJS).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

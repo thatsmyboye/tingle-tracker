@@ -3,6 +3,7 @@ import tempfile
 import subprocess
 import math
 import logging
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,11 @@ from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 
 WORKER_SECRET = os.environ.get("AUDIO_WORKER_SECRET", "")
+# Netscape-format cookies file (e.g. from browser export). Required for many
+# Fly/datacenter IPs when YouTube returns "Sign in to confirm you're not a bot".
+_YT_DLP_COOKIES_FILE = os.environ.get("YT_DLP_COOKIES_FILE") or os.environ.get(
+    "YT_DLP_COOKIES_PATH", ""
+)
 WINDOW_SECONDS = 30
 SR = 22050  # librosa default — 22.05 kHz mono
 
@@ -49,22 +55,11 @@ def extract_audio_features(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_template = str(Path(tmpdir) / "audio.%(ext)s")
+        cmd = _yt_dlp_command(output_template, url)
 
         try:
             result = subprocess.run(
-                [
-                    "yt-dlp",
-                    "--extract-audio",
-                    "--audio-format", "wav",
-                    "--audio-quality", "0",
-                    "--no-playlist",
-                    "--retries", "10",
-                    "--fragment-retries", "10",
-                    "--file-access-retries", "5",
-                    "--quiet",
-                    "-o", output_template,
-                    url,
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=720,  # 12 min — long ASMR videos can be slow to download
@@ -101,6 +96,35 @@ def extract_audio_features(
         features = _extract_features_chunked(audio_path, body.duration_seconds)
 
     return {"features": features}
+
+
+def _yt_dlp_command(output_template: str, url: str) -> list[str]:
+    """Build yt-dlp argv; prefers Node EJS when available, optional cookies for DC IPs."""
+    args: list[str] = [
+        "yt-dlp",
+        "--extract-audio",
+        "--audio-format", "wav",
+        "--audio-quality", "0",
+        "--no-playlist",
+        "--retries", "10",
+        "--fragment-retries", "10",
+        "--file-access-retries", "5",
+        "--quiet",
+        "-o", output_template,
+    ]
+    if shutil.which("node"):
+        args.extend(["--js-runtimes", "node"])
+    if _YT_DLP_COOKIES_FILE:
+        cookie_path = Path(_YT_DLP_COOKIES_FILE)
+        if cookie_path.is_file():
+            args.extend(["--cookies", str(cookie_path)])
+        else:
+            log.warning(
+                "YT_DLP_COOKIES_FILE set but not a readable file: %s",
+                _YT_DLP_COOKIES_FILE,
+            )
+    args.append(url)
+    return args
 
 
 def _finite(x: float, default: float = 0.0) -> float:
