@@ -10,11 +10,19 @@ export interface TriggerClassificationInput {
   description: string | null;
   transcript: string | null;
   availableTags: Pick<TriggerTag, "id" | "label" | "slug" | "category">[];
+  /** Optional alternate slugs per tag id (for prompt hints; model must still output canonical slug only) */
+  aliasSlugsByTagId?: Record<string, string[]>;
 }
 
 export function buildTriggerClassificationPrompt(input: TriggerClassificationInput): string {
+  const aliasById = input.aliasSlugsByTagId ?? {};
   const tagList = input.availableTags
-    .map((t) => `- ${t.slug} (${t.category}): ${t.label}`)
+    .map((t) => {
+      const aliases = aliasById[t.id]?.filter((a) => a && a !== t.slug) ?? [];
+      const aliasHint =
+        aliases.length > 0 ? ` — also known as: ${aliases.slice(0, 6).join(", ")}` : "";
+      return `- ${t.slug} (${t.category}): ${t.label}${aliasHint}`;
+    })
     .join("\n");
 
   return `You are analyzing an ASMR video to identify which trigger types are present.

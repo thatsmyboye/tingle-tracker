@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
 import { getSupabaseServerClient } from "@tingle/database";
-import { getAnthropicClient, CLAUDE_MODEL, buildAudioHeatmapPredictionPrompt } from "@tingle/ai";
+import {
+  getAnthropicClient,
+  CLAUDE_MODEL,
+  buildAudioHeatmapPredictionPrompt,
+  buildTriggerSlugResolver,
+} from "@tingle/ai";
 import { fetchYouTubeTimedTranscript } from "@/lib/youtube";
 import type { PredictedHeatmapBucket, AudioFeatureWindow } from "@tingle/types";
 
@@ -40,6 +45,8 @@ const AudioFeatureWindowSchema = z.array(
   })
 );
 
+type AudioWorkerStatus = "used" | "skipped_unconfigured" | "failed";
+
 export const audioAnalyze = inngest.createFunction(
   { id: "audio.analyze", name: "Audio Analysis: Predict Tingle Heatmap", triggers: [{ event: "content/ingested" }] },
   async ({ event, step }) => {
@@ -68,6 +75,8 @@ export const audioAnalyze = inngest.createFunction(
       // ---- 3. Extract acoustic features via Python worker (best-effort) --------
       // Returns null when AUDIO_WORKER_URL is unset or the worker is unavailable.
       // The job proceeds with transcript-only analysis in that case.
+      let audioWorkerStatus: AudioWorkerStatus = "skipped_unconfigured";
+
       const audioFeatures = await step.run("extract-audio-features", async () => {
         const workerUrl = process.env.AUDIO_WORKER_URL;
         if (!workerUrl) {
@@ -88,49 +97,72 @@ export const audioAnalyze = inngest.createFunction(
               youtube_video_id: contentMeta.youtube_video_id,
               duration_seconds: contentMeta.duration_seconds ?? 0,
             }),
-            // 4-minute ceiling — fits within the route's maxDuration=300s with buffer for
-            // Inngest overhead. Fly suspend wake-up (~1s) + extraction must land under this.
-            signal: AbortSignal.timeout(240_000),
+            // Stay under Vercel maxDuration=300s with buffer for Inngest + Fly wake-up.
+            // Worker yt-dlp timeout is 720s — very long downloads may still fall back to captions-only.
+            signal: AbortSignal.timeout(285_000),
           });
 
           if (!res.ok) {
             const body = await res.text().catch(() => "(unreadable)");
             console.error(`[audio.analyze] worker returned HTTP ${res.status} for contentId=${contentId}: ${body.slice(0, 400)}`);
-            return null;
+            return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
           }
 
           const data = await res.json() as { features?: unknown };
           const parsed = AudioFeatureWindowSchema.safeParse(data.features);
           if (!parsed.success) {
             console.error(`[audio.analyze] worker response failed schema validation for contentId=${contentId}:`, parsed.error.flatten());
-            return null;
+            return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
           }
-          return parsed.data as AudioFeatureWindow[];
+          return { features: parsed.data as AudioFeatureWindow[], workerOk: true as const };
         } catch (err) {
           console.error(`[audio.analyze] worker fetch failed for contentId=${contentId}:`, err instanceof Error ? err.message : String(err));
-          return null;
+          return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
         }
       });
 
-      // ---- 4. Fetch trigger tags -----------------------------------------------
-      const triggerTags = await step.run("fetch-trigger-tags", async () => {
-        const { data, error } = await db
-          .from("trigger_tags")
-          .select("slug, label, category");
-        if (error) throw new Error(`Failed to fetch trigger tags: ${error.message}`);
-        return data ?? [];
+      const audioFeaturesResult = audioFeatures as
+        | AudioFeatureWindow[]
+        | { features: AudioFeatureWindow[] | null; workerOk: boolean }
+        | null;
+
+      const rawFeatures: AudioFeatureWindow[] | null = Array.isArray(audioFeaturesResult)
+        ? audioFeaturesResult
+        : audioFeaturesResult?.features ?? null;
+
+      const audioFeaturesResolved: AudioFeatureWindow[] | null =
+        rawFeatures && rawFeatures.length > 0 ? rawFeatures : null;
+
+      if (audioFeaturesResult && !Array.isArray(audioFeaturesResult)) {
+        audioWorkerStatus =
+          audioFeaturesResult.workerOk && audioFeaturesResolved ? "used" : "failed";
+      }
+
+      // ---- 4. Fetch trigger tags + aliases -------------------------------------
+      const { triggerTags, tagAliases } = await step.run("fetch-trigger-tags", async () => {
+        const [tagsRes, aliasesRes] = await Promise.all([
+          db.from("trigger_tags").select("id, slug, label, category, display_group"),
+          db.from("trigger_tag_aliases").select("alias_slug, trigger_tag_id"),
+        ]);
+        if (tagsRes.error) throw new Error(`Failed to fetch trigger tags: ${tagsRes.error.message}`);
+        if (aliasesRes.error) throw new Error(`Failed to fetch trigger tag aliases: ${aliasesRes.error.message}`);
+        return { triggerTags: tagsRes.data ?? [], tagAliases: aliasesRes.data ?? [] };
       });
+
+      const slugResolver = buildTriggerSlugResolver(triggerTags, tagAliases);
 
       // ---- 5. Predict heatmap with Claude -------------------------------------
       const predictedBuckets = await step.run("predict-heatmap-with-claude", async () => {
-        console.log(`[audio.analyze:predict] contentId=${contentId} segments=${timedSegments?.length ?? 0} audioFeatures=${audioFeatures?.length ?? 0}`);
+        console.log(
+          `[audio.analyze:predict] contentId=${contentId} segments=${timedSegments?.length ?? 0} audioFeatures=${audioFeaturesResolved?.length ?? 0}`
+        );
         const prompt = buildAudioHeatmapPredictionPrompt({
           title: contentMeta.title,
           description: contentMeta.description ?? null,
           timedSegments,
           durationSeconds: contentMeta.duration_seconds ?? 0,
           availableTags: triggerTags,
-          audioFeatures,
+          audioFeatures: audioFeaturesResolved,
         });
 
         const anthropic = getAnthropicClient();
@@ -157,8 +189,27 @@ export const audioAnalyze = inngest.createFunction(
         return PredictedBucketSchema.parse(parsed);
       });
 
-      if (predictedBuckets.length === 0) {
-        return { contentId, skipped: true, reason: "Claude returned no peak buckets" };
+      const canonicalBuckets = predictedBuckets
+        .map((b) => {
+          const dominant = [
+            ...new Set(
+              b.dominant_trigger_slugs
+                .map((raw) => slugResolver.resolve(raw)?.slug)
+                .filter((s): s is string => !!s)
+            ),
+          ].slice(0, 3);
+          return { ...b, dominant_trigger_slugs: dominant };
+        })
+        .filter((b) => b.dominant_trigger_slugs.length > 0);
+
+      if (canonicalBuckets.length === 0) {
+        await step.run("store-audio-worker-status-only", async () => {
+          const { error } = await db
+            .from("insights_cache")
+            .upsert({ content_id: contentId, audio_worker_status: audioWorkerStatus }, { onConflict: "content_id" });
+          if (error) throw new Error(`Failed to store audio_worker_status: ${error.message}`);
+        });
+        return { contentId, skipped: true, reason: "No peak buckets with resolvable trigger slugs" };
       }
 
       // ---- 6. Persist predicted heatmap ----------------------------------------
@@ -168,9 +219,9 @@ export const audioAnalyze = inngest.createFunction(
         // Mark source as "audio_features" when the worker contributed data,
         // "transcript_analysis" when falling back to captions/title only.
         const source: PredictedHeatmapBucket["source"] =
-          audioFeatures != null ? "audio_features" : "transcript_analysis";
+          audioFeaturesResolved != null ? "audio_features" : "transcript_analysis";
 
-        const buckets: PredictedHeatmapBucket[] = predictedBuckets.map((b) => ({
+        const buckets: PredictedHeatmapBucket[] = canonicalBuckets.map((b) => ({
           ...b,
           source,
         }));
@@ -180,6 +231,7 @@ export const audioAnalyze = inngest.createFunction(
           .upsert(
             {
               content_id: contentId,
+              audio_worker_status: audioWorkerStatus,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any -- JSONB lacks index signature
               predicted_heatmap: buckets as any,
             },
@@ -191,8 +243,9 @@ export const audioAnalyze = inngest.createFunction(
 
       return {
         contentId,
-        bucketsStored: predictedBuckets.length,
-        source: audioFeatures != null ? "audio_features" : "transcript_analysis",
+        bucketsStored: canonicalBuckets.length,
+        source: audioFeaturesResolved != null ? "audio_features" : "transcript_analysis",
+        audioWorkerStatus,
       };
     } catch (err) {
       // audio.analyze errors are non-fatal — do not mark insights_cache as error.

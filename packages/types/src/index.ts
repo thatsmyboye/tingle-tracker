@@ -73,6 +73,8 @@ export interface TriggerTag {
   slug: string;
   category: TriggerCategory;
   description: string | null;
+  /** UI grouping (sensory, vocal_style, style_genre, music, ambience, …) */
+  display_group?: string;
   created_at: string;
 }
 
@@ -221,6 +223,17 @@ export interface PredictedHeatmapBucket {
   source: "transcript_analysis" | "audio_features";
 }
 
+/** How the narrative paragraph was grounded (synopsis is never raw waveform audio). */
+export type NarrativeInputSource = "transcript" | "title_description_only";
+
+/** Structured listener-facing facets from a dedicated LLM step */
+export interface ListenerProfile {
+  style_genre: string[];
+  vocal_style: string[];
+  background_music: "none" | "detected" | "unclear";
+  notes?: string;
+}
+
 /** Shape of the JSON stored in insights_cache.report */
 export interface InsightReport {
   generated_at: string;
@@ -234,15 +247,19 @@ export interface InsightReport {
    */
   transcript_analysis?: string;
   /**
-   * Which pipeline produced the analysis.
-   * "transcript_analysis" = captions/title only (Python worker unavailable).
-   * "audio_features" = acoustic features from the Python worker were used.
+   * @deprecated Prefer narrative_input_source. Legacy field; narrative is transcript- or metadata-based only.
    */
   audio_source?: "transcript_analysis" | "audio_features";
+  /** Whether the synopsis used transcript text or only title/description. */
+  narrative_input_source?: NarrativeInputSource;
+  /** Search/listener facets (style, vocal, music) — separate from sensory trigger tags */
+  listener_profile?: ListenerProfile;
   top_triggers: Array<{
     trigger_tag_id: string;
     label: string;
     category: TriggerCategory;
+    /** Dashboard grouping from trigger_tags.display_group */
+    display_group?: string;
     confidence: number;
     timestamp_examples_ms: number[];
   }>;

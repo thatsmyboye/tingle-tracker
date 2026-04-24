@@ -78,6 +78,7 @@ export type Database = {
           slug: string;
           category: Database["public"]["Enums"]["trigger_category"];
           description: string | null;
+          display_group: string;
           created_at: string;
         };
         Insert: {
@@ -86,6 +87,7 @@ export type Database = {
           slug: string;
           category: Database["public"]["Enums"]["trigger_category"];
           description?: string | null;
+          display_group?: string;
           created_at?: string;
         };
         Update: {
@@ -94,9 +96,33 @@ export type Database = {
           slug?: string;
           category?: Database["public"]["Enums"]["trigger_category"];
           description?: string | null;
+          display_group?: string;
           created_at?: string;
         };
         Relationships: [];
+      };
+      trigger_tag_aliases: {
+        Row: {
+          alias_slug: string;
+          trigger_tag_id: string;
+        };
+        Insert: {
+          alias_slug: string;
+          trigger_tag_id: string;
+        };
+        Update: {
+          alias_slug?: string;
+          trigger_tag_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "trigger_tag_aliases_trigger_tag_id_fkey";
+            columns: ["trigger_tag_id"];
+            isOneToOne: false;
+            referencedRelation: "trigger_tags";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       content: {
         Row: {
@@ -385,6 +411,7 @@ export type Database = {
           status: Database["public"]["Enums"]["insight_status"];
           report: Json | null;
           predicted_heatmap: Json | null;
+          audio_worker_status: string | null;
           error_message: string | null;
           generated_at: string | null;
           created_at: string;
@@ -396,6 +423,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["insight_status"];
           report?: Json | null;
           predicted_heatmap?: Json | null;
+          audio_worker_status?: string | null;
           error_message?: string | null;
           generated_at?: string | null;
           created_at?: string;
@@ -407,6 +435,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["insight_status"];
           report?: Json | null;
           predicted_heatmap?: Json | null;
+          audio_worker_status?: string | null;
           error_message?: string | null;
           generated_at?: string | null;
           created_at?: string;

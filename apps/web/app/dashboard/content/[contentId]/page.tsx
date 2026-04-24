@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
@@ -32,6 +32,7 @@ interface InsightsCacheRow {
   status: "pending" | "generating" | "ready" | "error";
   report: InsightReport | null;
   predicted_heatmap?: PredictedHeatmapBucket[] | null;
+  audio_worker_status?: string | null;
   error_message: string | null;
   generated_at: string | null;
 }
@@ -366,6 +367,12 @@ export default function ContentDetailPage({
           realTingleTotal={totalTingles}
           lockedPredictedBuckets={hasLockedPredicted ? allPredictedBuckets.filter((b) => b.bucket_start_ms >= FREE_PREDICTED_CUTOFF_MS) : []}
         />
+        {content.status === "ready" && (
+          <HeatmapPipelineNote
+            predictedBuckets={allPredictedBuckets}
+            audioWorkerStatus={insights?.audio_worker_status ?? null}
+          />
+        )}
         {hasLockedPredicted && (
           <div className="mt-3 flex items-center justify-between rounded border border-tingle-gold/20 bg-tingle-gold/5 px-4 py-3">
             <div>
@@ -416,13 +423,66 @@ function StatCard({ label, value, note }: { label: string; value: string; note?:
 }
 
 // =============================================================================
+// HeatmapPipelineNote
+// =============================================================================
+
+function HeatmapPipelineNote({
+  predictedBuckets,
+  audioWorkerStatus,
+}: {
+  predictedBuckets: PredictedHeatmapBucket[];
+  audioWorkerStatus: string | null;
+}) {
+  const workerLabel =
+    audioWorkerStatus === "used"
+      ? "Acoustic worker ran and returned feature windows."
+      : audioWorkerStatus === "failed"
+        ? "Acoustic worker was configured but did not return usable features (often download or timeout); prediction used captions/title."
+        : audioWorkerStatus === "skipped_unconfigured"
+          ? "Acoustic worker URL is not configured; prediction used captions/title only."
+          : predictedBuckets.length > 0
+            ? "Acoustic worker status was not recorded for this run (older analysis)."
+            : null;
+
+  const heatmapUsesAudio =
+    predictedBuckets.length > 0 && predictedBuckets.some((b) => b.source === "audio_features");
+
+  const heatmapLabel = heatmapUsesAudio
+    ? "AI heatmap peaks used acoustic features plus captions/context."
+    : predictedBuckets.length > 0
+      ? "AI heatmap peaks used captions and metadata (no acoustic feature windows in this run)."
+      : "No AI heatmap peaks stored yet (analysis may still be running or returned no peaks).";
+
+  return (
+    <div className="mt-3 rounded border border-surface-border/60 bg-surface/30 px-3 py-2 space-y-1">
+      {workerLabel && <p className="font-mono text-[10px] text-surface-muted leading-relaxed">{workerLabel}</p>}
+      <p className="font-mono text-[10px] text-surface-muted leading-relaxed">{heatmapLabel}</p>
+    </div>
+  );
+}
+
+// =============================================================================
 // ContentAnalysis
 // =============================================================================
 
-const AUDIO_SOURCE_LABELS: Record<string, string> = {
-  transcript_analysis: "Transcript",
-  audio_features: "Audio + Transcript",
+const NARRATIVE_SOURCE_LABELS: Record<string, string> = {
+  transcript: "Synopsis grounded in captions/transcript text.",
+  title_description_only: "Synopsis from title and description only (no usable transcript).",
 };
+
+function mergeUniqueStrings(a: string[], b: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of [...a, ...b]) {
+    const t = s.trim();
+    if (!t) continue;
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+  }
+  return out;
+}
 
 function ContentAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
   if (!insights || insights.status === "pending") {
@@ -451,74 +511,118 @@ function ContentAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
   }
 
   const { report } = insights;
+  const profile = report.listener_profile;
+  const triggers = report.top_triggers;
+
+  const styleGenreFromTags = triggers
+    .filter((t) => (t.display_group ?? "sensory") === "style_genre")
+    .map((t) => t.label);
+  const vocalFromTags = triggers
+    .filter((t) => (t.display_group ?? "sensory") === "vocal_style")
+    .map((t) => t.label);
+  const musicFromTags = triggers.filter((t) => (t.display_group ?? "sensory") === "music");
+  const ambienceFromTags = triggers.filter((t) => (t.display_group ?? "sensory") === "ambience");
+  const sensoryTriggers = triggers.filter((t) => {
+    const g = t.display_group ?? "sensory";
+    return g === "sensory" || !["style_genre", "vocal_style", "music", "ambience"].includes(g);
+  });
+
+  const styleGenreChips = mergeUniqueStrings(profile?.style_genre ?? [], styleGenreFromTags);
+  const vocalChips = mergeUniqueStrings(profile?.vocal_style ?? [], vocalFromTags);
+
+  const musicLine =
+    profile?.background_music === "detected"
+      ? "Background music: detected in dialogue/metadata signals."
+      : profile?.background_music === "none"
+        ? "Background music: none detected."
+        : profile?.background_music === "unclear"
+          ? "Background music: n/a (unclear from available text)."
+          : "Background music: n/a (run a fresh analysis for this field).";
+
+  const narrativeSource = report.narrative_input_source ?? "transcript";
 
   return (
     <div className="space-y-6">
-      {/* Claude narrative paragraph — leads the section */}
+      {/* Synopsis */}
       {report.transcript_analysis ? (
         <div className="rounded border border-surface-border bg-surface/50 px-4 py-3">
+          <p className="text-xs uppercase tracking-widest text-surface-muted mb-2">Synopsis</p>
           <p className="text-sm text-white/85 leading-relaxed">{report.transcript_analysis}</p>
-          {report.audio_source && (
-            <p className="mt-2 font-mono text-[10px] text-surface-muted">
-              Source: {AUDIO_SOURCE_LABELS[report.audio_source] ?? report.audio_source}
-            </p>
-          )}
+          <p className="mt-2 font-mono text-[10px] text-surface-muted">
+            {NARRATIVE_SOURCE_LABELS[narrativeSource] ??
+              NARRATIVE_SOURCE_LABELS.transcript}
+          </p>
         </div>
       ) : (
-        /* Fallback for legacy reports without transcript_analysis */
-        report.summary && (
-          <p className="text-sm text-white/80 leading-relaxed">{report.summary}</p>
-        )
+        report.summary && <p className="text-sm text-white/80 leading-relaxed">{report.summary}</p>
       )}
 
-      {/* Detected triggers */}
-      {report.top_triggers.length === 0 && (
+      {/* Taxonomy: listener profile + tag groups */}
+      <div className="space-y-5">
+        <TaxonomyBlock title="Style / genre">
+          {styleGenreChips.length > 0 ? (
+            <ChipRow items={styleGenreChips} />
+          ) : (
+            <p className="text-xs text-surface-muted">—</p>
+          )}
+        </TaxonomyBlock>
+
+        <TaxonomyBlock title="Vocal style">
+          {vocalChips.length > 0 ? (
+            <ChipRow items={vocalChips} />
+          ) : (
+            <p className="text-xs text-surface-muted">—</p>
+          )}
+        </TaxonomyBlock>
+
+        <TaxonomyBlock title="Background music">
+          <p className="text-xs text-white/80">{musicLine}</p>
+        </TaxonomyBlock>
+
+        {musicFromTags.length > 0 && (
+          <TaxonomyBlock title="Music (taxonomy tags)">
+            <TriggerConfidenceList triggers={musicFromTags} />
+          </TaxonomyBlock>
+        )}
+
+        {ambienceFromTags.length > 0 && (
+          <TaxonomyBlock title="Ambience">
+            <TriggerConfidenceList triggers={ambienceFromTags} />
+          </TaxonomyBlock>
+        )}
+
+        {profile?.notes && profile.notes.trim() && (
+          <TaxonomyBlock title="Notes">
+            <p className="text-xs text-white/75 leading-relaxed">{profile.notes}</p>
+          </TaxonomyBlock>
+        )}
+      </div>
+
+      {/* Sensory & other classified triggers */}
+      {triggers.length === 0 && (
         <p className="rounded border border-surface-border bg-surface/40 px-3 py-2 text-xs text-surface-muted">
           No trigger tags were resolved for this video yet.
-          {insights.error_message
-            ? ` Diagnostic: ${insights.error_message}`
-            : ""}
+          {insights.error_message ? ` Diagnostic: ${insights.error_message}` : ""}
         </p>
       )}
-      {report.top_triggers.length > 0 && (
+      {sensoryTriggers.length > 0 && (
         <div>
-          <h3 className="text-xs uppercase tracking-widest text-surface-muted mb-3">Detected Triggers</h3>
-          <div className="space-y-3">
-            {report.top_triggers.map((t) => (
-              <div key={t.trigger_tag_id} className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-white flex-1">{t.label}</span>
-                  <span
-                    className={cn(
-                      "rounded px-2 py-0.5 text-[10px] uppercase tracking-wider border",
-                      CATEGORY_STYLES[t.category as keyof typeof CATEGORY_STYLES]
-                    )}
-                  >
-                    {t.category.replace("_", " ")}
-                  </span>
-                  <span className="text-xs text-surface-muted tabular-nums">
-                    {Math.round(t.confidence * 100)}%
-                  </span>
-                </div>
-                {/* Confidence bar */}
-                <div className="h-1 rounded-full bg-surface-muted/30 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-tingle-aqua/50"
-                    style={{ width: `${Math.round(t.confidence * 100)}%` }}
-                  />
-                </div>
-                {/* Timestamp examples */}
-                {t.timestamp_examples_ms.length > 0 && (
-                  <p className="text-[10px] text-surface-muted">
-                    Examples:{" "}
-                    {t.timestamp_examples_ms
-                      .slice(0, 3)
-                      .map((ms) => formatMs(ms))
-                      .join(", ")}
+          <h3 className="text-xs uppercase tracking-widest text-surface-muted mb-3">
+            Sensory triggers
+          </h3>
+          <div className="space-y-4">
+            {(["visual", "aural", "tactile_adjacent"] as const).map((cat) => {
+              const inCat = sensoryTriggers.filter((t) => t.category === cat);
+              if (inCat.length === 0) return null;
+              return (
+                <div key={cat}>
+                  <p className="text-[10px] uppercase tracking-wider text-surface-muted/80 mb-2">
+                    {cat.replace("_", " ")}
                   </p>
-                )}
-              </div>
-            ))}
+                  <TriggerConfidenceList triggers={inCat} />
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -543,6 +647,74 @@ function ContentAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
       <p className="text-[10px] text-surface-muted">
         Generated {new Date(report.generated_at).toLocaleString()}
       </p>
+    </div>
+  );
+}
+
+function TaxonomyBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <h3 className="text-xs uppercase tracking-widest text-surface-muted mb-2">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function ChipRow({ items }: { items: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item) => (
+        <span
+          key={item}
+          className="rounded-full border border-surface-border bg-surface/60 px-2.5 py-1 text-xs text-white/90"
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function TriggerConfidenceList({
+  triggers,
+}: {
+  triggers: InsightReport["top_triggers"];
+}) {
+  return (
+    <div className="space-y-3">
+      {triggers.map((t) => (
+        <div key={t.trigger_tag_id} className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-white flex-1">{t.label}</span>
+            <span
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] uppercase tracking-wider border",
+                CATEGORY_STYLES[t.category as keyof typeof CATEGORY_STYLES]
+              )}
+            >
+              {t.category.replace("_", " ")}
+            </span>
+            <span className="text-xs text-surface-muted tabular-nums">
+              {Math.round(t.confidence * 100)}%
+            </span>
+          </div>
+          <div className="h-1 rounded-full bg-surface-muted/30 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-tingle-aqua/50"
+              style={{ width: `${Math.round(t.confidence * 100)}%` }}
+            />
+          </div>
+          {t.timestamp_examples_ms.length > 0 && (
+            <p className="text-[10px] text-surface-muted">
+              Examples:{" "}
+              {t.timestamp_examples_ms
+                .slice(0, 3)
+                .map((ms) => formatMs(ms))
+                .join(", ")}
+            </p>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
