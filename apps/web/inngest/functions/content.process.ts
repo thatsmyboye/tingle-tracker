@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
 import { getSupabaseServerClient } from "@tingle/database";
-import { getAnthropicClient, CLAUDE_MODEL, buildTriggerClassificationPrompt } from "@tingle/ai";
+import { getAnthropicClient, CLAUDE_MODEL, buildTriggerClassificationPrompt, buildContentNarrativePrompt } from "@tingle/ai";
 import { fetchYouTubeTranscript } from "@/lib/youtube";
 import type { InsightReport } from "@tingle/types";
 
@@ -142,14 +142,42 @@ export const contentProcess = inngest.createFunction(
         if (error) throw new Error(`Failed to upsert content_triggers: ${error.message}`);
       });
 
-      // ---- 7. Write insights_cache -------------------------------------------
+      // ---- 7. Generate Claude narrative paragraph ----------------------------
+      const narrativeText = await step.run("generate-narrative", async () => {
+        const topLabels = resolvedTriggers
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 5)
+          .map((t) => t._label);
+
+        const prompt = buildContentNarrativePrompt({
+          title: content.title,
+          description: content.description ?? null,
+          transcript: transcript ?? null,
+          topTriggerLabels: topLabels,
+        });
+
+        const anthropic = getAnthropicClient();
+        const message = await anthropic.messages.create({
+          model: CLAUDE_MODEL,
+          max_tokens: 512,
+          messages: [{ role: "user", content: prompt }],
+        });
+
+        const text =
+          message.content[0]?.type === "text" ? message.content[0].text.trim() : null;
+        return text;
+      });
+
+      // ---- 8. Write insights_cache -------------------------------------------
       await step.run("cache-insights", async () => {
+        const sortedTriggers = resolvedTriggers.sort((a, b) => b.confidence - a.confidence);
         const report: InsightReport = {
           generated_at: new Date().toISOString(),
           content_id: contentId,
           summary: `Identified ${resolvedTriggers.length} ASMR trigger${resolvedTriggers.length !== 1 ? "s" : ""} in this video.`,
-          top_triggers: resolvedTriggers
-            .sort((a, b) => b.confidence - a.confidence)
+          transcript_analysis: narrativeText ?? undefined,
+          audio_source: "transcript_analysis",
+          top_triggers: sortedTriggers
             .slice(0, 10)
             .map((t) => ({
               trigger_tag_id: t.trigger_tag_id,
@@ -178,7 +206,7 @@ export const contentProcess = inngest.createFunction(
         if (error) throw new Error(`Failed to write insights_cache: ${error.message}`);
       });
 
-      // ---- 8. Mark content ready ---------------------------------------------
+      // ---- 9. Mark content ready ---------------------------------------------
       await step.run("mark-ready", async () => {
         const { error } = await db
           .from("content")

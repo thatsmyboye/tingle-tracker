@@ -11,9 +11,14 @@ const GOLD_RGB = "255, 213, 128";
 
 /** Threshold below which predicted data is shown alongside real data */
 const PREDICTED_HIDE_THRESHOLD = 10;
-const BUCKET_MS = 30_000;
+// Real heatmap view uses 10-second buckets; predicted uses 30-second buckets.
+const REAL_BUCKET_MS = 10_000;
+const PRED_BUCKET_MS = 30_000;
 const VIEW_W = 1000;
 const VIEW_H = 100;
+
+// Spline tension — higher = gentler curves between control points
+const SPLINE_T = 0.45;
 
 // =============================================================================
 // Helpers
@@ -33,7 +38,7 @@ function clamp(v: number, lo: number, hi: number) {
 /** Cardinal spline → SVG cubic bezier filled area path. */
 function smoothAreaPath(pts: { x: number; y: number }[]): string {
   if (pts.length === 0) return "";
-  const t = 0.3;
+  const t = SPLINE_T;
   let d = `M 0 ${VIEW_H} L ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} `;
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[Math.max(0, i - 1)];
@@ -50,10 +55,79 @@ function smoothAreaPath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
+/**
+ * Gaussian-weighted moving average to smooth a height array.
+ * radius controls how many neighbours contribute; sigma controls the falloff.
+ */
+function gaussianSmooth(heights: number[], radius = 3, sigma = 1.6): number[] {
+  const n = heights.length;
+  if (n === 0) return heights;
+
+  // Precompute kernel weights
+  const kernel: number[] = [];
+  let kernelSum = 0;
+  for (let k = -radius; k <= radius; k++) {
+    const w = Math.exp(-(k * k) / (2 * sigma * sigma));
+    kernel.push(w);
+    kernelSum += w;
+  }
+  const normKernel = kernel.map((w) => w / kernelSum);
+
+  return heights.map((_, i) => {
+    let val = 0;
+    for (let k = -radius; k <= radius; k++) {
+      const j = clamp(i + k, 0, n - 1);
+      val += heights[j] * normKernel[k + radius];
+    }
+    return val;
+  });
+}
+
+/**
+ * For sparse predicted buckets (only peaks ≥ 3 are stored), fill the gaps
+ * between peaks with a linear blend from zero so the smoothing has something
+ * to work with, rather than abrupt zero walls on either side of a peak.
+ */
+function fillPredictedGaps(heights: number[]): number[] {
+  const filled = [...heights];
+  const n = filled.length;
+
+  // Find non-zero indices
+  const peakIdxs: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (filled[i] > 0) peakIdxs.push(i);
+  }
+  if (peakIdxs.length === 0) return filled;
+
+  // Between consecutive peaks, linearly interpolate a low baseline so the
+  // drop between peaks stays smooth rather than zero-floored.
+  for (let p = 0; p < peakIdxs.length - 1; p++) {
+    const left = peakIdxs[p];
+    const right = peakIdxs[p + 1];
+    const gap = right - left;
+    if (gap <= 1) continue;
+    const leftVal = filled[left];
+    const rightVal = filled[right];
+    // Blend down to a minimum baseline of 10% of the weaker peak
+    const baseline = Math.min(leftVal, rightVal) * 0.1;
+    for (let i = left + 1; i < right; i++) {
+      const frac = (i - left) / gap;
+      // Cosine ease: starts and ends near the peaks, dips to baseline in the middle
+      const cosWeight = (1 - Math.cos(Math.PI * frac)) / 2;
+      const blended = leftVal * (1 - frac) * (1 - cosWeight) +
+        rightVal * frac * cosWeight +
+        baseline * cosWeight * (1 - cosWeight) * 4;
+      filled[i] = Math.max(filled[i], blended);
+    }
+  }
+
+  return filled;
+}
+
 function realHeightsArray(buckets: ContentTingleHeatmapRow[], n: number): number[] {
   const arr = new Array<number>(n).fill(0);
   for (const b of buckets) {
-    const i = Math.floor(b.bucket_start_ms / BUCKET_MS);
+    const i = Math.floor(b.bucket_start_ms / REAL_BUCKET_MS);
     if (i >= 0 && i < n) arr[i] = b.tingle_count;
   }
   return arr;
@@ -62,7 +136,7 @@ function realHeightsArray(buckets: ContentTingleHeatmapRow[], n: number): number
 function predHeightsArray(buckets: PredictedHeatmapBucket[], n: number): number[] {
   const arr = new Array<number>(n).fill(0);
   for (const b of buckets) {
-    const i = Math.floor(b.bucket_start_ms / BUCKET_MS);
+    const i = Math.floor(b.bucket_start_ms / PRED_BUCKET_MS);
     if (i >= 0 && i < n) arr[i] = b.predicted_intensity;
   }
   return arr;
@@ -128,21 +202,27 @@ export function HeatmapChart({
     );
   }
 
-  // Compute effective total duration
+  // Compute effective total duration.
+  // Real buckets are 10s; predicted buckets are 30s.
   const totalDurationMs = durationSeconds ? durationSeconds * 1000 : null;
-  const lastBucketEdgeMs = hasRealData
-    ? Math.max(...buckets.map((b) => b.bucket_start_ms + BUCKET_MS))
-    : predictedBuckets.length > 0
-    ? Math.max(...[...predictedBuckets, ...lockedPredictedBuckets].map((b) => b.bucket_start_ms + BUCKET_MS))
+  const lastRealEdgeMs = hasRealData
+    ? Math.max(...buckets.map((b) => b.bucket_start_ms + REAL_BUCKET_MS))
     : 0;
+  const lastPredEdgeMs = predictedBuckets.length > 0
+    ? Math.max(...[...predictedBuckets, ...lockedPredictedBuckets].map((b) => b.bucket_start_ms + PRED_BUCKET_MS))
+    : 0;
+  const lastBucketEdgeMs = Math.max(lastRealEdgeMs, lastPredEdgeMs);
   const effectiveDurationMs = totalDurationMs ?? lastBucketEdgeMs;
   if (effectiveDurationMs === 0) return null;
 
-  const totalBuckets = Math.ceil(effectiveDurationMs / BUCKET_MS);
+  // Use a consistent bucket size for the chart grid.
+  // When real data is present we use 10s buckets; for predicted-only we use 30s.
+  const chartBucketMs = hasRealData ? REAL_BUCKET_MS : PRED_BUCKET_MS;
+  const totalBuckets = Math.ceil(effectiveDurationMs / chartBucketMs);
 
-  // Locked section boundary (first locked bucket index)
+  // Locked section boundary (first locked bucket index in chart grid units)
   const lockedStartBucket = hasLockedSection
-    ? Math.floor(Math.min(...lockedPredictedBuckets.map((b) => b.bucket_start_ms)) / BUCKET_MS)
+    ? Math.floor(Math.min(...lockedPredictedBuckets.map((b) => b.bucket_start_ms)) / chartBucketMs)
     : totalBuckets;
   const lockedPct = (lockedStartBucket / totalBuckets) * 100;
 
@@ -152,18 +232,21 @@ export function HeatmapChart({
   const gradId = `hm-grad-${uid}`;
 
   if (hasRealData) {
-    const heights = realHeightsArray(buckets, totalBuckets);
+    const rawHeights = realHeightsArray(buckets, totalBuckets);
+    // Gaussian smoothing makes the real-event curve flow more naturally
+    const heights = gaussianSmooth(rawHeights, 4, 2.0);
     const maxVal = Math.max(...heights, 1);
     areaPath = smoothAreaPath(heightsToPoints(heights, maxVal, totalBuckets));
   } else {
-    // Predicted-only: visible portion + locked noise fill so the full timeline renders
-    const visHeights = predHeightsArray(predictedBuckets, lockedStartBucket);
+    // Predicted-only: sparse peaks → fill gaps → smooth
     const lockedCount = totalBuckets - lockedStartBucket;
+    const rawVisHeights = predHeightsArray(predictedBuckets, lockedStartBucket);
+    const visHeights = gaussianSmooth(fillPredictedGaps(rawVisHeights), 3, 1.8);
+
     if (hasLockedSection && lockedCount > 0) {
-      const lockedRealHeights = predHeightsArray(lockedPredictedBuckets, totalBuckets).slice(lockedStartBucket);
+      const lockedRawHeights = predHeightsArray(lockedPredictedBuckets, totalBuckets).slice(lockedStartBucket);
       const noise = buildNoiseHeights(lockedStartBucket, lockedCount);
-      // Blend noise with real locked peaks so actual spikes punch through the noise
-      const mergedLocked = noise.map((n, i) => Math.max(n, lockedRealHeights[i] ?? 0));
+      const mergedLocked = noise.map((n, i) => Math.max(n, lockedRawHeights[i] ?? 0));
       const allHeights = [...visHeights, ...mergedLocked];
       const maxVal = Math.max(...allHeights, 1);
       areaPath = smoothAreaPath(heightsToPoints(allHeights, maxVal, totalBuckets));
@@ -175,15 +258,17 @@ export function HeatmapChart({
 
   // Hover state — derive bucket from cursor position
   const hovBucketIdx = hoverPct !== null ? clamp(Math.floor((hoverPct / 100) * totalBuckets), 0, totalBuckets - 1) : null;
-  const hovBucketMs = hovBucketIdx !== null ? hovBucketIdx * BUCKET_MS : null;
+  const hovBucketMs = hovBucketIdx !== null ? hovBucketIdx * chartBucketMs : null;
   const isHoverLocked = hovBucketIdx !== null && hovBucketIdx >= lockedStartBucket;
   const hovRealBucket =
     hasRealData && hovBucketIdx !== null
-      ? (buckets.find((b) => Math.floor(b.bucket_start_ms / BUCKET_MS) === hovBucketIdx) ?? null)
+      ? (buckets.find((b) => Math.floor(b.bucket_start_ms / REAL_BUCKET_MS) === hovBucketIdx) ?? null)
       : null;
   const hovPredBucket =
-    !hasRealData && showPredicted && hovBucketIdx !== null
-      ? (predictedBuckets.find((b) => Math.floor(b.bucket_start_ms / BUCKET_MS) === hovBucketIdx) ?? null)
+    !hasRealData && showPredicted && hovBucketMs !== null
+      ? (predictedBuckets.find(
+          (b) => hovBucketMs >= b.bucket_start_ms && hovBucketMs < b.bucket_end_ms
+        ) ?? null)
       : null;
 
   // X-axis minute labels

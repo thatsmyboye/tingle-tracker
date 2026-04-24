@@ -254,9 +254,8 @@ export default function ContentDetailPage({
       ? heatmap.reduce((sum, b) => sum + b.avg_intensity, 0) / heatmap.length
       : 0;
 
-  // When showing a predicted heatmap with no/few real listener events, label stats as "actual"
-  // so users understand the 0 / — values are real listener data, not predictions.
-  const isPredictedMode = totalTingles < 10 && visiblePredictedBuckets.length > 0;
+  // When showing a predicted heatmap with no/few real listener events, the chart will display
+  // the AI prediction. The stats row separately communicates the 0 real tingles vs AI triggers.
 
   // ---- Render ----------------------------------------------------------------
 
@@ -328,16 +327,31 @@ export default function ContentDetailPage({
       {/* Stats row */}
       {content.status === "ready" && (
         <div className="grid grid-cols-3 gap-4 mb-6">
-          <StatCard
-            label="Total Tingles"
-            value={totalTingles.toLocaleString()}
-            source={isPredictedMode ? "actual" : undefined}
-          />
-          <StatCard
-            label="Avg Intensity"
-            value={avgIntensity > 0 ? avgIntensity.toFixed(2) : "—"}
-            source={isPredictedMode ? "actual" : undefined}
-          />
+          {totalTingles > 0 ? (
+            <>
+              <StatCard
+                label="Total Tingles"
+                value={totalTingles.toLocaleString()}
+              />
+              <StatCard
+                label="Avg Intensity"
+                value={avgIntensity > 0 ? avgIntensity.toFixed(2) : "—"}
+              />
+            </>
+          ) : (
+            <>
+              <StatCard
+                label="Listener Tingles"
+                value="0"
+                note="Actual"
+              />
+              <StatCard
+                label="Detected Triggers"
+                value={insights?.report?.top_triggers.length.toLocaleString() ?? "—"}
+                note="AI"
+              />
+            </>
+          )}
           <StatCard label="Duration" value={formatDuration(content.duration_seconds)} />
         </div>
       )}
@@ -372,10 +386,10 @@ export default function ContentDetailPage({
         )}
       </section>
 
-      {/* Trigger analysis */}
+      {/* Content analysis */}
       <section className="rounded-lg border border-surface-border bg-surface-elevated p-4">
-        <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">Trigger Analysis</h2>
-        <TriggerAnalysis insights={insights} />
+        <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">Content Analysis</h2>
+        <ContentAnalysis insights={insights} />
       </section>
     </main>
   );
@@ -385,21 +399,14 @@ export default function ContentDetailPage({
 // StatCard
 // =============================================================================
 
-function StatCard({ label, value, source }: { label: string; value: string; source?: "actual" | "predicted" }) {
+function StatCard({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
     <div className="rounded-lg border border-surface-border bg-surface-elevated p-4">
       <div className="flex items-center gap-1.5 mb-1">
         <p className="text-xs uppercase tracking-widest text-surface-muted">{label}</p>
-        {source && (
-          <span
-            className={cn(
-              "rounded border px-1 py-px font-mono text-[9px] uppercase tracking-wider",
-              source === "actual"
-                ? "border-tingle-aqua/20 bg-tingle-aqua/5 text-tingle-aqua/50"
-                : "border-tingle-gold/20 bg-tingle-gold/5 text-tingle-gold/50"
-            )}
-          >
-            {source}
+        {note && (
+          <span className="rounded border border-surface-muted/20 bg-surface-muted/5 px-1 py-px font-mono text-[9px] uppercase tracking-wider text-surface-muted/60">
+            {note}
           </span>
         )}
       </div>
@@ -409,10 +416,15 @@ function StatCard({ label, value, source }: { label: string; value: string; sour
 }
 
 // =============================================================================
-// TriggerAnalysis
+// ContentAnalysis
 // =============================================================================
 
-function TriggerAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
+const AUDIO_SOURCE_LABELS: Record<string, string> = {
+  transcript_analysis: "Transcript",
+  audio_features: "Audio + Transcript",
+};
+
+function ContentAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
   if (!insights || insights.status === "pending") {
     return <p className="font-mono text-xs text-surface-muted">Analysis queued…</p>;
   }
@@ -442,12 +454,24 @@ function TriggerAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
 
   return (
     <div className="space-y-6">
-      {/* Summary */}
-      {report.summary && (
-        <p className="text-sm text-white/80 leading-relaxed">{report.summary}</p>
+      {/* Claude narrative paragraph — leads the section */}
+      {report.transcript_analysis ? (
+        <div className="rounded border border-surface-border bg-surface/50 px-4 py-3">
+          <p className="text-sm text-white/85 leading-relaxed">{report.transcript_analysis}</p>
+          {report.audio_source && (
+            <p className="mt-2 font-mono text-[10px] text-surface-muted">
+              Source: {AUDIO_SOURCE_LABELS[report.audio_source] ?? report.audio_source}
+            </p>
+          )}
+        </div>
+      ) : (
+        /* Fallback for legacy reports without transcript_analysis */
+        report.summary && (
+          <p className="text-sm text-white/80 leading-relaxed">{report.summary}</p>
+        )
       )}
 
-      {/* Top triggers */}
+      {/* Detected triggers */}
       {report.top_triggers.length > 0 && (
         <div>
           <h3 className="text-xs uppercase tracking-widest text-surface-muted mb-3">Detected Triggers</h3>
@@ -491,7 +515,7 @@ function TriggerAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
         </div>
       )}
 
-      {/* Heatmap highlights */}
+      {/* Heatmap highlights — shown when available */}
       {report.heatmap_highlights.length > 0 && (
         <div>
           <h3 className="text-xs uppercase tracking-widest text-surface-muted mb-3">Highlights</h3>

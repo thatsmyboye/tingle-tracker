@@ -45,3 +45,43 @@ Example format:
   { "slug": "tapping", "confidence": 0.7, "reasoning": "Audible tapping on wooden surfaces in the second half." }
 ]`;
 }
+
+// =============================================================================
+// Prompt: Content Narrative Analysis
+// Issues a focused second Claude call to produce a human-readable paragraph
+// describing the ASMR character of the video — shown on the creator dashboard.
+// =============================================================================
+
+export interface ContentNarrativeInput {
+  title: string;
+  description: string | null;
+  transcript: string | null;
+  /** Top trigger slugs already resolved by the classification step */
+  topTriggerLabels: string[];
+}
+
+export function buildContentNarrativePrompt(input: ContentNarrativeInput): string {
+  const triggerList =
+    input.topTriggerLabels.length > 0
+      ? input.topTriggerLabels.map((l) => `- ${l}`).join("\n")
+      : "No triggers detected.";
+
+  return `You are writing a short creator insight for an ASMR video dashboard. Your job is to describe what makes this video relaxing or tingle-inducing in 2–4 plain sentences — no fluff, no filler phrases.
+
+## Video Information
+**Title:** ${input.title}
+${input.description ? `**Description:** ${input.description.slice(0, 400)}` : ""}
+${input.transcript ? `**Transcript excerpt:**\n${input.transcript.slice(0, 2500)}` : "No transcript available."}
+
+## Detected ASMR Triggers
+${triggerList}
+
+## Instructions
+Write 2–4 sentences characterising the ASMR style and likely audience of this video. Focus on:
+- The dominant sensory experience (sound textures, pacing, voice style)
+- Which moments are most likely to trigger tingles and why
+- The overall mood or roleplay scenario if applicable
+
+Do NOT start with "This video…" — vary the opening. Do NOT use bullet points. Write in plain prose, present tense.
+Respond with ONLY the paragraph — no labels, headers, or extra text.`;
+}
