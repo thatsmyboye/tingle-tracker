@@ -19,11 +19,12 @@ build:
     # Without this patch, Xcode Codegen aborts with errors such as:
     #   Unknown prop type for "…": "undefined"
     #   typeAnnotation of event doesn't have a name
-    # CWD on EAS Build is the monorepo root (/Users/expo/workingdir/build),
-    # so the path is relative to the repo root, not apps/mobile/.
+    # CWD on EAS Build is the monorepo root (/Users/expo/workingdir/build).
+    # The script lives inside the apps/mobile workspace package so it is
+    # always included in the EAS build upload — reference it from there.
     - run:
         name: Patch react-native-screens Fabric types for RN 0.74 Codegen
-        command: node scripts/patch-native-deps.cjs
+        command: node apps/mobile/scripts/patch-native-deps.cjs
 
     # Generate native ios/ and android/ directories from the Expo config.
     # Codegen also runs during pod install (triggered by Fastlane), so the
