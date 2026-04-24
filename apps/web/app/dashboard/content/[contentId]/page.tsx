@@ -325,6 +325,23 @@ export default function ContentDetailPage({
         </div>
       )}
 
+      {/* Acoustic worker did not contribute — transcript/metadata analysis still completed */}
+      {content.status === "ready" && insights?.audio_worker_status === "failed" && (
+        <div className="mb-6 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3">
+          <p className="font-mono text-xs text-amber-200/95">
+            Acoustic analysis did not complete for this video. The AI heatmap and triggers used captions and
+            metadata only, not the audio waveform.
+          </p>
+        </div>
+      )}
+      {content.status === "ready" && insights?.audio_worker_status === "skipped_unconfigured" && (
+        <div className="mb-6 rounded-lg border border-surface-border/80 bg-surface-muted/5 px-4 py-2">
+          <p className="font-mono text-[10px] text-surface-muted leading-relaxed">
+            Acoustic worker is not configured — predictions used captions and metadata only.
+          </p>
+        </div>
+      )}
+
       {/* Stats row */}
       {content.status === "ready" && (
         <div className="grid grid-cols-3 gap-4 mb-6">
