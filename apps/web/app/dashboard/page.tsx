@@ -26,6 +26,8 @@ interface ContentRow {
   thumbnail_url: string | null;
   status: "pending" | "processing" | "ready" | "error";
   created_at: string;
+  /** From insights_cache — set when audio.analyze ran */
+  audio_worker_status?: string | null;
 }
 
 const STATUS_STYLES: Record<ContentRow["status"], string> = {
@@ -123,16 +125,18 @@ export default function DashboardPage() {
     if (triggersRes.error) { setError(triggersRes.error.message); setLoadingData(false); return; }
 
     const contentList = (contentRes.data ?? []) as ContentRow[];
-    setContent(contentList);
     setTopTriggers((triggersRes.data ?? []) as CreatorTopTriggerRow[]);
 
-    // Aggregate heatmap tingle totals per content item
+    // Aggregate heatmap tingle totals + audio worker status per content item
     if (contentList.length > 0) {
       const ids = contentList.map((c) => c.id);
-      const { data: heatmapData } = await supabase
-        .from("content_tingle_heatmap")
-        .select("content_id, tingle_count")
-        .in("content_id", ids);
+      const [{ data: heatmapData }, { data: insightStatusRows }] = await Promise.all([
+        supabase
+          .from("content_tingle_heatmap")
+          .select("content_id, tingle_count")
+          .in("content_id", ids),
+        supabase.from("insights_cache").select("content_id, audio_worker_status").in("content_id", ids),
+      ]);
 
       const totals: Record<string, number> = {};
       for (const row of heatmapData ?? []) {
@@ -141,6 +145,21 @@ export default function DashboardPage() {
         }
       }
       setHeatmapTotals(totals);
+
+      const audioStatusByContentId: Record<string, string | null> = {};
+      for (const row of insightStatusRows ?? []) {
+        if (row.content_id) {
+          audioStatusByContentId[row.content_id] = row.audio_worker_status ?? null;
+        }
+      }
+      setContent(
+        contentList.map((c) => ({
+          ...c,
+          audio_worker_status: audioStatusByContentId[c.id] ?? null,
+        }))
+      );
+    } else {
+      setContent(contentList);
     }
 
     setLoadingData(false);
@@ -550,17 +569,27 @@ function ContentCard({
       </div>
 
       {/* Status badge */}
-      <span
-        className={cn(
-          "flex-shrink-0 rounded px-2 py-1 text-[10px] uppercase tracking-wider border",
-          STATUS_STYLES[content.status]
+      <div className="flex flex-shrink-0 flex-col items-end gap-1">
+        <span
+          className={cn(
+            "rounded px-2 py-1 text-[10px] uppercase tracking-wider border",
+            STATUS_STYLES[content.status]
+          )}
+        >
+          {content.status === "processing" && (
+            <span className="inline-block w-2 h-2 border border-current border-t-transparent rounded-full animate-spin mr-1" />
+          )}
+          {content.status}
+        </span>
+        {content.status === "ready" && content.audio_worker_status === "failed" && (
+          <span
+            className="max-w-[9rem] text-right font-mono text-[9px] uppercase tracking-wider text-amber-200/90"
+            title="Acoustic extraction failed; AI used captions/metadata only."
+          >
+            Audio unavailable
+          </span>
         )}
-      >
-        {content.status === "processing" && (
-          <span className="inline-block w-2 h-2 border border-current border-t-transparent rounded-full animate-spin mr-1" />
-        )}
-        {content.status}
-      </span>
+      </div>
 
       {/* Remove button */}
       <button

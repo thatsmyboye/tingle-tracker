@@ -85,9 +85,11 @@ export const audioAnalyze = inngest.createFunction(
         }
 
         const secret = process.env.AUDIO_WORKER_SECRET ?? "";
+        // Trailing slash on AUDIO_WORKER_URL would otherwise produce `//extract` (404 on FastAPI).
+        const workerBase = workerUrl.trim().replace(/\/+$/, "");
 
         try {
-          const res = await fetch(`${workerUrl}/extract`, {
+          const res = await fetch(`${workerBase}/extract`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
