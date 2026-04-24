@@ -19,21 +19,27 @@ build:
     # Without this patch, Xcode Codegen aborts with errors such as:
     #   Unknown prop type for "…": "undefined"
     #   typeAnnotation of event doesn't have a name
-    # CWD on EAS Build is the monorepo root (/Users/expo/workingdir/build).
-    # The script lives inside the apps/mobile workspace package so it is
-    # always included in the EAS build upload — reference it from there.
+    # EAS Build CWD is the apps/mobile project directory
+    # (/Users/expo/workingdir/build/ = apps/mobile/ contents).
+    # scripts/patch-native-deps.cjs resolves to apps/mobile/scripts/ from
+    # that CWD. The root-level scripts/ copy also exists, so this command
+    # works whether EAS sets CWD to apps/mobile/ or to the monorepo root.
     - run:
         name: Patch react-native-screens Fabric types for RN 0.74 Codegen
-        command: node apps/mobile/scripts/patch-native-deps.cjs
+        command: node scripts/patch-native-deps.cjs
 
     # Generate native ios/ and android/ directories from the Expo config.
     # Codegen also runs during pod install (triggered by Fastlane), so the
     # patch above must happen before this step.
     # Using pnpm exec instead of eas/prebuild (which calls npx internally)
     # to avoid npm libnpmexec lock corruption on Node.js 24 (ECOMPROMISED).
+    # CWD detection: if app.json is present we are already in apps/mobile/;
+    # otherwise cd into it (handles monorepo-root CWD fallback).
     - run:
         name: Expo prebuild
-        command: cd apps/mobile && pnpm exec expo prebuild --clean --non-interactive
+        command: |
+          [ -f app.json ] || cd apps/mobile
+          pnpm exec expo prebuild --clean --non-interactive
 
     # Platform-aware: eas/run_fastlane is skipped on Android builds;
     # eas/run_gradle is skipped on iOS builds.
