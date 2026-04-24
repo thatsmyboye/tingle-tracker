@@ -2,6 +2,7 @@ import os
 import tempfile
 import subprocess
 import math
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,7 @@ SR = 22050  # librosa default — 22.05 kHz mono
 _YOUTUBE_VIDEO_ID_RE = r"^[\w-]{11}$"
 
 app = FastAPI()
+log = logging.getLogger("tingle_audio_worker")
 
 
 class ExtractRequest(BaseModel):
@@ -48,30 +50,47 @@ def extract_audio_features(
     with tempfile.TemporaryDirectory() as tmpdir:
         output_template = str(Path(tmpdir) / "audio.%(ext)s")
 
-        result = subprocess.run(
-            [
-                "yt-dlp",
-                "--extract-audio",
-                "--audio-format", "wav",
-                "--audio-quality", "0",
-                "--no-playlist",
-                "--retries", "10",
-                "--fragment-retries", "10",
-                "--file-access-retries", "5",
-                "--quiet",
-                "-o", output_template,
-                url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=720,  # 12 min — long ASMR videos can be slow to download
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "yt-dlp",
+                    "--extract-audio",
+                    "--audio-format", "wav",
+                    "--audio-quality", "0",
+                    "--no-playlist",
+                    "--retries", "10",
+                    "--fragment-retries", "10",
+                    "--file-access-retries", "5",
+                    "--quiet",
+                    "-o", output_template,
+                    url,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=720,  # 12 min — long ASMR videos can be slow to download
+            )
+        except subprocess.TimeoutExpired:
+            log.warning(
+                "yt-dlp timed out after 720s for youtube_video_id=%s",
+                body.youtube_video_id,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="yt-dlp timed out after 720s",
+            ) from None
 
         if result.returncode != 0:
+            err_tail = (result.stderr or result.stdout or "")[:800]
+            log.warning(
+                "yt-dlp failed rc=%s youtube_video_id=%s stderr_tail=%r",
+                result.returncode,
+                body.youtube_video_id,
+                err_tail,
+            )
             # 502: upstream download/extract failed — not a malformed client payload (422).
             raise HTTPException(
                 status_code=502,
-                detail=f"yt-dlp failed: {result.stderr[:400]}",
+                detail=f"yt-dlp failed: {(result.stderr or '')[:400]}",
             )
 
         wav_files = list(Path(tmpdir).glob("audio.*"))
