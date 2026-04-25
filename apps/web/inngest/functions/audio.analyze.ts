@@ -154,7 +154,23 @@ export const audioAnalyze = inngest.createFunction(
 
       const slugResolver = buildTriggerSlugResolver(triggerTags, tagAliases);
 
-      // ---- 5. Predict heatmap with Claude -------------------------------------
+      // ---- 5. Guard: skip if there is no real signal to predict from ----------
+      // Without transcript segments or audio features, Claude would hallucinate
+      // a heatmap from title/description alone — that data is not trustworthy.
+      if (!timedSegments?.length && !audioFeaturesResolved) {
+        await step.run("store-no-signal-status", async () => {
+          const { error } = await db
+            .from("insights_cache")
+            .upsert(
+              { content_id: contentId, audio_worker_status: audioWorkerStatus },
+              { onConflict: "content_id" }
+            );
+          if (error) throw new Error(`Failed to store audio_worker_status: ${error.message}`);
+        });
+        return { contentId, skipped: true, reason: "No transcript segments or audio features available", audioWorkerStatus };
+      }
+
+      // ---- 6. Predict heatmap with Claude -------------------------------------
       const predictedBuckets = await step.run("predict-heatmap-with-claude", async () => {
         console.log(
           `[audio.analyze:predict] contentId=${contentId} segments=${timedSegments?.length ?? 0} audioFeatures=${audioFeaturesResolved?.length ?? 0}`
@@ -206,7 +222,7 @@ export const audioAnalyze = inngest.createFunction(
         return { contentId, skipped: true, reason: "No peak buckets with resolvable trigger slugs" };
       }
 
-      // ---- 6. Persist predicted heatmap ----------------------------------------
+      // ---- 7. Persist predicted heatmap ----------------------------------------
       // Upsert only the predicted_heatmap column so content.process's report/status
       // fields are never overwritten, regardless of job ordering.
       await step.run("store-predicted-heatmap", async () => {
