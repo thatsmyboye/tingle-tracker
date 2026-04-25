@@ -27,7 +27,11 @@ RUN git clone --depth 1 --branch 1.3.1 --single-branch \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    # Always upgrade yt-dlp to latest at build time — YouTube rotates the
+    # n-challenge JS frequently; a stale solver produces the EJS warning and
+    # missing formats even when Node.js is present.
+    && pip install --no-cache-dir --upgrade yt-dlp
 
 COPY main.py entrypoint.sh ./
 RUN chmod +x entrypoint.sh
