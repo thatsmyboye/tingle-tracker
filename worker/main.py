@@ -55,7 +55,6 @@ def _resolve_cookies_file() -> str:
     return ""
 
 
-_YT_DLP_COOKIES_FILE: str = _resolve_cookies_file()
 WINDOW_SECONDS = 30
 SR = 22050  # librosa default — 22.05 kHz mono
 
@@ -91,9 +90,14 @@ def extract_audio_features(
 
     url = f"https://www.youtube.com/watch?v={body.youtube_video_id}"
 
+    # Re-resolve cookies on every request so a newly-set YT_DLP_COOKIES_B64
+    # Fly secret is picked up immediately (Fly restarts the machine on secret
+    # changes, but this also guards against mid-session env changes).
+    cookies_file = _resolve_cookies_file()
+
     with tempfile.TemporaryDirectory() as tmpdir:
         output_template = str(Path(tmpdir) / "audio.%(ext)s")
-        cmd = _yt_dlp_command(output_template, url)
+        cmd = _yt_dlp_command(output_template, url, cookies_file)
 
         try:
             result = subprocess.run(
@@ -116,19 +120,25 @@ def extract_audio_features(
             err_output = result.stderr or result.stdout or ""
             err_tail = err_output[:800]
             if any(p in err_output for p in _BOT_DETECTION_PATTERNS):
+                cookies_configured = "yes" if cookies_file else "no"
                 log.error(
-                    "yt-dlp bot-detection block youtube_video_id=%s — "
+                    "yt-dlp bot-detection block youtube_video_id=%s cookies_configured=%s — "
                     "set YT_DLP_COOKIES_B64 Fly secret or verify extractor-args; stderr_tail=%r",
                     body.youtube_video_id,
+                    cookies_configured,
                     err_tail,
                 )
-            else:
-                log.warning(
-                    "yt-dlp failed rc=%s youtube_video_id=%s stderr_tail=%r",
-                    result.returncode,
-                    body.youtube_video_id,
-                    err_tail,
+                # 503: retryable/configurable — cookies or extractor-args will fix it.
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"yt-dlp bot-detection block (cookies_configured={cookies_configured}): {(result.stderr or '')[:400]}",
                 )
+            log.warning(
+                "yt-dlp failed rc=%s youtube_video_id=%s stderr_tail=%r",
+                result.returncode,
+                body.youtube_video_id,
+                err_tail,
+            )
             # 502: upstream download/extract failed — not a malformed client payload (422).
             raise HTTPException(
                 status_code=502,
@@ -145,16 +155,20 @@ def extract_audio_features(
     return {"features": features}
 
 
-def _yt_dlp_command(output_template: str, url: str) -> list[str]:
+def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> list[str]:
     """Build yt-dlp argv for datacenter IPs (Fly.io EWR).
 
-    ios and mweb clients do not require PO tokens from datacenter IPs.
-    tv_embedded was removed from yt-dlp; android_vr alone triggers bot detection.
-    If these still fail, set YT_DLP_COOKIES_B64 with exported browser cookies.
+    Client priority for datacenter IPs (as of 2025):
+      tv_embedded — embedded-player client; no PO token required for most content.
+      ios         — iOS app client; own auth mechanism, reliable fallback.
+      web_creator — YouTube Studio client; less restricted than the public web client.
+
+    If all clients fail with bot-detection, set YT_DLP_COOKIES_B64 (Fly secret)
+    to a base64-encoded Netscape-format cookies export from a signed-in browser.
     """
     args: list[str] = [
         "yt-dlp",
-        "--extractor-args", "youtube:player_client=ios,mweb",
+        "--extractor-args", "youtube:player_client=tv_embedded,ios,web_creator",
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
@@ -165,8 +179,8 @@ def _yt_dlp_command(output_template: str, url: str) -> list[str]:
         "--quiet",
         "-o", output_template,
     ]
-    if _YT_DLP_COOKIES_FILE and Path(_YT_DLP_COOKIES_FILE).is_file():
-        args.extend(["--cookies", _YT_DLP_COOKIES_FILE])
+    if cookies_file and Path(cookies_file).is_file():
+        args.extend(["--cookies", cookies_file])
     args.append(url)
     return args
 
