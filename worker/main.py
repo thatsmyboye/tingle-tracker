@@ -159,14 +159,17 @@ def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> l
     """Build yt-dlp argv for datacenter IPs (Fly.io EWR).
 
     Client priority for datacenter IPs (2026):
-      ios  — iOS app client; no PO token required, no SABR. Skipped by yt-dlp
-             when cookies are active (incompatible with Netscape-format cookies),
-             so mweb handles the cookies case.
-      mweb — Mobile web client; no SABR experiment, cookies-compatible, reliable
-             on datacenter IPs. Requires a GVS PO Token for https formats —
-             bgutil-ytdlp-pot-provider (installed via requirements.txt) supplies
-             these automatically via Node.js. Without it, yt-dlp skips all mweb
-             https formats and fails with rc=1 when cookies are active.
+      ios     — iOS app client; no PO token required, no SABR, no n-challenge.
+                Skipped by yt-dlp when cookies are active (incompatible with
+                Netscape-format cookies), so android handles the cookies case.
+      android — Android app client; no n-challenge (uses direct CDN URLs without
+                the `n` throttle parameter), no POT tokens required, accepts
+                cookies, works on datacenter IPs. Primary fallback when ios is
+                skipped due to cookies.
+      mweb    — Mobile web client; last resort. No SABR, cookies-compatible, but
+                requires n-challenge solving (EJS via Node.js) AND a GVS PO Token
+                (bgutil-ytdlp-pot-provider). If the bundled n-challenge solver
+                drifts stale the mweb formats are silently skipped.
 
     Dropped:
       tv_embedded — YouTube removed this player client (~late 2024); yt-dlp logs
@@ -183,7 +186,7 @@ def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> l
     """
     args: list[str] = [
         "yt-dlp",
-        "--extractor-args", "youtube:player_client=ios,mweb",
+        "--extractor-args", "youtube:player_client=ios,android,mweb",
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
