@@ -272,30 +272,54 @@ function parseTimedTextSrv3(xml: string): TimedTranscriptSegment[] {
   return segments;
 }
 
+function parseTimedTextXml(xml: string): TimedTranscriptSegment[] {
+  // Basic XML format: <text start="1.5" dur="2.3">caption text</text>
+  // start and dur are in seconds (float). Used by the no-fmt timedtext endpoint.
+  const segments: TimedTranscriptSegment[] = [];
+  const textRe = /<text\b([^>]*)>([\s\S]*?)<\/text>/g;
+  let match: RegExpExecArray | null;
+  while ((match = textRe.exec(xml)) !== null) {
+    const attrs = match[1];
+    const startMatch = /\bstart="([\d.]+)"/.exec(attrs);
+    const durMatch = /\bdur="([\d.]+)"/.exec(attrs);
+    if (!startMatch || !durMatch) continue;
+    const text = decodeEntities(match[2].replace(/<[^>]+>/g, " ")).trim();
+    if (!text) continue;
+    segments.push({
+      text,
+      start_ms: Math.round(parseFloat(startMatch[1]) * 1000),
+      duration_ms: Math.round(parseFloat(durMatch[1]) * 1000),
+    });
+  }
+  return segments;
+}
+
 /**
  * Fetch timed caption segments for a YouTube video.
  * Tries manual English captions first, then auto-generated (kind=asr) as fallback.
+ * Each track is attempted with srv3 format first, then basic XML (no fmt param)
+ * because auto-generated captions may not return usable srv3 data.
  * Returns null if captions are unavailable or the request fails.
  * Must be called server-side only.
  */
 export async function fetchYouTubeTimedTranscript(
   videoId: string
 ): Promise<TimedTranscriptSegment[] | null> {
-  // YouTube hosts manual and auto-generated captions separately. The Data API's
-  // `captionsAvailable` flag misses auto-generated tracks, so we always attempt
-  // both URLs and return the first non-empty result.
-  const urls = [
-    `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=srv3`,
-    `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${encodeURIComponent(videoId)}&fmt=srv3`,
+  const v = encodeURIComponent(videoId);
+  const candidates: Array<{ url: string; parser: (xml: string) => TimedTranscriptSegment[] }> = [
+    { url: `https://www.youtube.com/api/timedtext?lang=en&v=${v}&fmt=srv3`, parser: parseTimedTextSrv3 },
+    { url: `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${v}&fmt=srv3`, parser: parseTimedTextSrv3 },
+    { url: `https://www.youtube.com/api/timedtext?lang=en&v=${v}`, parser: parseTimedTextXml },
+    { url: `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${v}`, parser: parseTimedTextXml },
   ];
 
-  for (const url of urls) {
+  for (const { url, parser } of candidates) {
     try {
       const res = await fetch(url, { next: { revalidate: 86400 } });
       if (!res.ok) continue;
       const xml = await res.text();
       if (!xml || xml.trim() === "") continue;
-      const segments = parseTimedTextSrv3(xml);
+      const segments = parser(xml);
       if (segments.length > 0) return segments;
     } catch {
       continue;
