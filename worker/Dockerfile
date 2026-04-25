@@ -1,12 +1,16 @@
 FROM python:3.11-slim
 
 # ffmpeg: WAV conversion. nodejs: yt-dlp n-challenge solver (requires a `node`
-# binary in PATH; see yt-dlp wiki/EJS). Debian's nodejs package installs
-# /usr/bin/nodejs — symlink to /usr/bin/node so yt-dlp can find it.
+# binary in PATH; see yt-dlp wiki/EJS). Install Node.js via NodeSource because
+# the Debian slim image's default sources don't reliably provide it; NodeSource
+# places the binary at /usr/bin/node directly (no symlink needed).
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
     ffmpeg \
-    nodejs \
-    && ln -sf /usr/bin/nodejs /usr/bin/node \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
