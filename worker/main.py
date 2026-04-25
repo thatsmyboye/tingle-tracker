@@ -158,17 +158,25 @@ def extract_audio_features(
 def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> list[str]:
     """Build yt-dlp argv for datacenter IPs (Fly.io EWR).
 
-    Client priority for datacenter IPs (as of 2025):
-      tv_embedded — embedded-player client; no PO token required for most content.
-      ios         — iOS app client; own auth mechanism, reliable fallback.
-      web_creator — YouTube Studio client; less restricted than the public web client.
+    Client priority for datacenter IPs (2026):
+      ios  — iOS app client; no PO token required, no SABR. Skipped by yt-dlp
+             when cookies are active (ios has its own auth, incompatible with
+             Netscape-format cookies), so mweb handles that case.
+      mweb — Mobile web client; no SABR experiment, cookies-compatible, reliable
+             on datacenter IPs.
 
-    If all clients fail with bot-detection, set YT_DLP_COOKIES_B64 (Fly secret)
+    Dropped:
+      tv_embedded — YouTube removed this player client (~late 2024); yt-dlp logs
+                    "Skipping unsupported client" and yields zero formats.
+      web_creator — Subject to YouTube's SABR-only streaming experiment on
+                    datacenter IPs; https formats are stripped, leaving nothing.
+
+    If both clients fail with bot-detection, set YT_DLP_COOKIES_B64 (Fly secret)
     to a base64-encoded Netscape-format cookies export from a signed-in browser.
     """
     args: list[str] = [
         "yt-dlp",
-        "--extractor-args", "youtube:player_client=tv_embedded,ios,web_creator",
+        "--extractor-args", "youtube:player_client=ios,mweb",
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
