@@ -4,7 +4,7 @@ set -e
 # Upgrade yt-dlp in the background while bgutil starts. YouTube rotates the
 # n-challenge JS solver frequently; a build-time install drifts stale within
 # days and produces "n challenge solving failed" even when Node.js is present.
-pip install --upgrade --quiet yt-dlp &
+pip install --upgrade --quiet "yt-dlp[default]" &
 YTDLP_UPGRADE_PID=$!
 
 # Start the bgutil HTTP server (GVS PO Token provider for yt-dlp mweb client).

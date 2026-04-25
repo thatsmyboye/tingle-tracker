@@ -28,10 +28,10 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    # Always upgrade yt-dlp to latest at build time — YouTube rotates the
-    # n-challenge JS frequently; a stale solver produces the EJS warning and
-    # missing formats even when Node.js is present.
-    && pip install --no-cache-dir --upgrade yt-dlp
+    # Always upgrade yt-dlp[default] to latest at build time — yt-dlp-ejs
+    # (included in the default group) ships updated challenge scripts alongside
+    # yt-dlp; upgrading both together keeps the versions in sync as required.
+    && pip install --no-cache-dir --upgrade "yt-dlp[default]"
 
 COPY main.py entrypoint.sh ./
 RUN chmod +x entrypoint.sh

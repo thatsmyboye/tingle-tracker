@@ -158,6 +158,13 @@ def extract_audio_features(
 def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> list[str]:
     """Build yt-dlp argv for datacenter IPs (Fly.io EWR).
 
+    EJS (External JS Scripts) setup — see https://github.com/yt-dlp/yt-dlp/wiki/EJS:
+      --js-runtimes node  — selects Node.js 20.x (in PATH via Dockerfile) as the
+                            EJS runtime for solving YouTube's JS challenges.
+      yt-dlp[default]     — the pip default dependency group bundles yt-dlp-ejs,
+                            which ships the challenge solver scripts. Both are
+                            upgraded together so their versions stay in sync.
+
     Client priority for datacenter IPs (2026):
       ios     — iOS app client; no PO token required, no SABR, no n-challenge.
                 Skipped by yt-dlp when cookies are active (incompatible with
@@ -166,10 +173,9 @@ def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> l
                 the `n` throttle parameter), no POT tokens required, accepts
                 cookies, works on datacenter IPs. Primary fallback when ios is
                 skipped due to cookies.
-      mweb    — Mobile web client; last resort. No SABR, cookies-compatible, but
-                requires n-challenge solving (EJS via Node.js) AND a GVS PO Token
-                (bgutil-ytdlp-pot-provider). If the bundled n-challenge solver
-                drifts stale the mweb formats are silently skipped.
+      mweb    — Mobile web client; last resort. No SABR, cookies-compatible.
+                Requires EJS n-challenge solving (Node.js + yt-dlp-ejs) AND a
+                GVS PO Token (bgutil-ytdlp-pot-provider).
 
     Dropped:
       tv_embedded — YouTube removed this player client (~late 2024); yt-dlp logs
@@ -186,6 +192,7 @@ def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> l
     """
     args: list[str] = [
         "yt-dlp",
+        "--js-runtimes", "node",
         "--extractor-args", "youtube:player_client=ios,android,mweb",
         "--extract-audio",
         "--audio-format", "wav",
