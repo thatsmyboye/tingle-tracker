@@ -482,10 +482,6 @@ function HeatmapPipelineNote({
 // ContentAnalysis
 // =============================================================================
 
-const NARRATIVE_SOURCE_LABELS: Record<string, string> = {
-  transcript: "Synopsis grounded in captions/transcript text.",
-  title_description_only: "Synopsis from title and description only (no usable transcript).",
-};
 
 function mergeUniqueStrings(a: string[], b: string[]): string[] {
   const seen = new Set<string>();
@@ -556,24 +552,8 @@ function ContentAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
           ? "Background music: n/a (unclear from available text)."
           : "Background music: n/a (run a fresh analysis for this field).";
 
-  const narrativeSource = report.narrative_input_source ?? "transcript";
-
   return (
     <div className="space-y-6">
-      {/* Synopsis */}
-      {report.transcript_analysis ? (
-        <div className="rounded border border-surface-border bg-surface/50 px-4 py-3">
-          <p className="text-xs uppercase tracking-widest text-surface-muted mb-2">Synopsis</p>
-          <p className="text-sm text-white/85 leading-relaxed">{report.transcript_analysis}</p>
-          <p className="mt-2 font-mono text-[10px] text-surface-muted">
-            {NARRATIVE_SOURCE_LABELS[narrativeSource] ??
-              NARRATIVE_SOURCE_LABELS.transcript}
-          </p>
-        </div>
-      ) : (
-        report.summary && <p className="text-sm text-white/80 leading-relaxed">{report.summary}</p>
-      )}
-
       {/* Taxonomy: listener profile + tag groups */}
       <div className="space-y-5">
         <TaxonomyBlock title="Style / genre">
