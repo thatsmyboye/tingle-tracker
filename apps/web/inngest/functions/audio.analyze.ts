@@ -135,11 +135,13 @@ export const audioAnalyze = inngest.createFunction(
           console.error(
             `[audio.analyze] worker HTTP ${res.status} for contentId=${contentId}: ${errBody.slice(0, 400)}`
           );
-          if (res.status >= 500) {
-            // 5xx indicates a transient server-side failure — let Inngest retry the step.
+          if (res.status !== 503 && res.status >= 500) {
+            // Non-503 5xx indicates a transient server-side failure — let Inngest retry the step.
             throw new Error(`[audio.analyze] worker HTTP ${res.status} for contentId=${contentId}`);
           }
-          // 4xx is a permanent client error (bad payload, auth) — do not retry.
+          // 503 = YouTube bot-detection block: persistent without cookie/extractor config.
+          // 4xx = permanent client error (bad payload, auth).
+          // Both: fall back to transcript-only rather than burning retries.
           return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
         }
 
@@ -161,20 +163,18 @@ export const audioAnalyze = inngest.createFunction(
       });
 
       const audioFeaturesResult = audioFeatures as
-        | AudioFeatureWindow[]
         | { features: AudioFeatureWindow[] | null; workerOk: boolean }
         | null;
 
-      const rawFeatures: AudioFeatureWindow[] | null = Array.isArray(audioFeaturesResult)
-        ? audioFeaturesResult
-        : audioFeaturesResult?.features ?? null;
+      const rawFeatures: AudioFeatureWindow[] | null = audioFeaturesResult?.features ?? null;
 
       const audioFeaturesResolved: AudioFeatureWindow[] | null =
         rawFeatures && rawFeatures.length > 0 ? rawFeatures : null;
 
-      if (audioFeaturesResult && !Array.isArray(audioFeaturesResult)) {
-        audioWorkerStatus =
-          audioFeaturesResult.workerOk && audioFeaturesResolved ? "used" : "failed";
+      if (audioFeaturesResult) {
+        // "used" = worker was invoked and responded OK (even if it produced 0 windows).
+        // "failed" = worker was invoked but returned an error or unreadable response.
+        audioWorkerStatus = audioFeaturesResult.workerOk ? "used" : "failed";
       }
 
       // ---- 4. Fetch trigger tags + aliases -------------------------------------
