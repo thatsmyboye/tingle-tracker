@@ -14,6 +14,17 @@ from pydantic import BaseModel, Field
 
 WORKER_SECRET = os.environ.get("AUDIO_WORKER_SECRET", "")
 
+# Give the application logger its own StreamHandler so INFO-level entries
+# always reach the container's stdout/stderr regardless of how uvicorn
+# configures the root logger.  Without this, getLogger() inherits the root
+# logger's default WARNING level and log.info() calls are silently dropped.
+log = logging.getLogger("tingle_audio_worker")
+log.setLevel(logging.INFO)
+if not log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    log.addHandler(_handler)
+
 # YouTube uses a curly right-single-quote (U+2019) in this message; include both
 # variants so the pattern matches regardless of yt-dlp version or locale.
 _BOT_DETECTION_PATTERNS = (
@@ -35,7 +46,7 @@ def _resolve_cookies_file() -> str:
         try:
             decoded = base64.b64decode(b64)
         except Exception as exc:
-            logging.getLogger("tingle_audio_worker").warning(
+            log.warning(
                 "YT_DLP_COOKIES_B64 is set but not valid base64: %s", exc
             )
         else:
@@ -49,7 +60,7 @@ def _resolve_cookies_file() -> str:
     if path_str:
         if Path(path_str).is_file():
             return path_str
-        logging.getLogger("tingle_audio_worker").warning(
+        log.warning(
             "YT_DLP_COOKIES_FILE set but not a readable file: %s", path_str
         )
     return ""
@@ -62,7 +73,6 @@ SR = 22050  # librosa default — 22.05 kHz mono
 _YOUTUBE_VIDEO_ID_RE = r"^[\w-]{11}$"
 
 app = FastAPI()
-log = logging.getLogger("tingle_audio_worker")
 
 
 class ExtractRequest(BaseModel):
