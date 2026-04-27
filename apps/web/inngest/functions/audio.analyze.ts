@@ -89,8 +89,17 @@ export const audioAnalyze = inngest.createFunction(
         // Trailing slash on AUDIO_WORKER_URL would otherwise produce `//extract` (404 on FastAPI).
         const workerBase = workerUrl.trim().replace(/\/+$/, "");
 
+        // Separate fetch errors from response-processing errors so that transient
+        // network/timeout failures are re-thrown and cause Inngest to retry the step,
+        // while permanent failures (4xx, schema mismatch) return null and let the job
+        // fall back to transcript-only analysis.
+        let res: Response;
         try {
-          const res = await fetch(`${workerBase}/extract`, {
+          console.log(
+            `[audio.analyze] calling worker contentId=${contentId} videoId=${contentMeta.youtube_video_id} ` +
+            `duration=${contentMeta.duration_seconds ?? 0}s`
+          );
+          res = await fetch(`${workerBase}/extract`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -104,24 +113,44 @@ export const audioAnalyze = inngest.createFunction(
             // Worker yt-dlp timeout is 720s — very long downloads may still fall back to captions-only.
             signal: AbortSignal.timeout(285_000),
           });
-
-          if (!res.ok) {
-            const body = await res.text().catch(() => "(unreadable)");
-            console.error(`[audio.analyze] worker returned HTTP ${res.status} for contentId=${contentId}: ${body.slice(0, 400)}`);
-            return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
-          }
-
-          const data = await res.json() as { features?: unknown };
-          const parsed = AudioFeatureWindowSchema.safeParse(data.features);
-          if (!parsed.success) {
-            console.error(`[audio.analyze] worker response failed schema validation for contentId=${contentId}:`, parsed.error.flatten());
-            return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
-          }
-          return { features: parsed.data as AudioFeatureWindow[], workerOk: true as const };
         } catch (err) {
-          console.error(`[audio.analyze] worker fetch failed for contentId=${contentId}:`, err instanceof Error ? err.message : String(err));
+          const isTimeout = err instanceof Error && err.name === "AbortError";
+          const msg = isTimeout
+            ? `worker timed out after 285s for contentId=${contentId} videoId=${contentMeta.youtube_video_id}`
+            : `worker fetch error for contentId=${contentId}: ${err instanceof Error ? err.message : String(err)}`;
+          console.error(`[audio.analyze] ${msg}`);
+          // Re-throw so Inngest retries this step — timeout and network errors are transient.
+          throw new Error(`[audio.analyze] ${msg}`);
+        }
+
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "(unreadable)");
+          console.error(
+            `[audio.analyze] worker HTTP ${res.status} for contentId=${contentId}: ${errBody.slice(0, 400)}`
+          );
+          if (res.status >= 500) {
+            // 5xx indicates a transient server-side failure — let Inngest retry the step.
+            throw new Error(`[audio.analyze] worker HTTP ${res.status} for contentId=${contentId}`);
+          }
+          // 4xx is a permanent client error (bad payload, auth) — do not retry.
           return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
         }
+
+        const data = await res.json() as { features?: unknown };
+        const parsed = AudioFeatureWindowSchema.safeParse(data.features);
+        if (!parsed.success) {
+          const sample = Array.isArray(data.features)
+            ? JSON.stringify((data.features as unknown[])[0]).slice(0, 200)
+            : String(data.features).slice(0, 200);
+          console.error(
+            `[audio.analyze] worker schema mismatch for contentId=${contentId}: ${parsed.error.message}; ` +
+            `received ${Array.isArray(data.features) ? (data.features as unknown[]).length : "non-array"} items, ` +
+            `sample=${sample}`
+          );
+          return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
+        }
+        console.log(`[audio.analyze] worker returned ${parsed.data.length} windows for contentId=${contentId}`);
+        return { features: parsed.data as AudioFeatureWindow[], workerOk: true as const };
       });
 
       const audioFeaturesResult = audioFeatures as

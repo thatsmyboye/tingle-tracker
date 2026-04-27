@@ -99,6 +99,11 @@ def extract_audio_features(
         output_template = str(Path(tmpdir) / "audio.%(ext)s")
         cmd = _yt_dlp_command(output_template, url, cookies_file)
 
+        log.info(
+            "yt-dlp starting youtube_video_id=%s duration_seconds=%.1f",
+            body.youtube_video_id,
+            body.duration_seconds,
+        )
         try:
             result = subprocess.run(
                 cmd,
@@ -116,6 +121,11 @@ def extract_audio_features(
                 detail="yt-dlp timed out after 720s",
             ) from None
 
+        log.info(
+            "yt-dlp finished rc=%d youtube_video_id=%s",
+            result.returncode,
+            body.youtube_video_id,
+        )
         if result.returncode != 0:
             err_output = result.stderr or result.stdout or ""
             err_tail = err_output[:800]
@@ -152,6 +162,11 @@ def extract_audio_features(
         audio_path = str(wav_files[0])
         features = _extract_features_chunked(audio_path, body.duration_seconds)
 
+    log.info(
+        "extraction complete windows=%d youtube_video_id=%s",
+        len(features),
+        body.youtube_video_id,
+    )
     return {"features": features}
 
 
