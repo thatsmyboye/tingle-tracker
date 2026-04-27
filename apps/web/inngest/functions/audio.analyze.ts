@@ -114,12 +114,19 @@ export const audioAnalyze = inngest.createFunction(
             signal: AbortSignal.timeout(285_000),
           });
         } catch (err) {
-          const isTimeout = err instanceof Error && err.name === "AbortError";
+          // AbortSignal.timeout() throws name="TimeoutError" in Node.js; name="AbortError" is
+          // only thrown when controller.abort() is called manually.
+          const isTimeout = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
           const msg = isTimeout
             ? `worker timed out after 285s for contentId=${contentId} videoId=${contentMeta.youtube_video_id}`
             : `worker fetch error for contentId=${contentId}: ${err instanceof Error ? err.message : String(err)}`;
           console.error(`[audio.analyze] ${msg}`);
-          // Re-throw so Inngest retries this step — timeout and network errors are transient.
+          if (isTimeout) {
+            // Timeout is content-specific (video too long for worker) — retrying will hit the
+            // same wall. Fall back gracefully to transcript-only analysis instead.
+            return { features: null as AudioFeatureWindow[] | null, workerOk: false as const };
+          }
+          // Network errors are transient — re-throw so Inngest retries this step.
           throw new Error(`[audio.analyze] ${msg}`);
         }
 
