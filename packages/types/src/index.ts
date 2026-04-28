@@ -150,6 +150,8 @@ export interface InsightsCache {
   report: InsightReport | null;
   /** Sparse predicted heatmap from audio.analyze — only notable peaks (intensity >= 3) */
   predicted_heatmap: PredictedHeatmapBucket[] | null;
+  /** Runtime diagnostics from audio.analyze for empty-heatmap triage */
+  audio_analysis_diagnostics: AudioAnalysisDiagnostics | null;
   error_message: string | null;
   generated_at: string | null;
   created_at: string;
@@ -221,6 +223,26 @@ export interface PredictedHeatmapBucket {
   dominant_trigger_slugs: string[];
   /** Extensible: "transcript_analysis" now, "audio_features" once a Python worker is wired up */
   source: "transcript_analysis" | "audio_features";
+}
+
+/** Diagnostic counters emitted by audio.analyze */
+export interface AudioAnalysisDiagnostics {
+  content_id: string;
+  audio_worker_status: "used" | "skipped_unconfigured" | "failed";
+  has_timed_segments: boolean;
+  timed_segment_count: number;
+  has_audio_features: boolean;
+  audio_feature_window_count: number;
+  predicted_bucket_count: number;
+  raw_slug_count: number;
+  unique_raw_slug_count: number;
+  unresolved_raw_slug_count: number;
+  unresolved_unique_slug_count: number;
+  canonical_bucket_count: number;
+  dropped_bucket_count: number;
+  dropped_bucket_ratio: number;
+  dropped_due_to_unresolved_only_count: number;
+  generated_at: string;
 }
 
 /** How the narrative paragraph was grounded (synopsis is never raw waveform audio). */

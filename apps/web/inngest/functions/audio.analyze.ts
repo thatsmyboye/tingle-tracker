@@ -9,7 +9,11 @@ import {
 } from "@tingle/ai";
 import { fetchYouTubeTimedTranscript } from "@/lib/youtube";
 import { parseClaudeJsonArray } from "@/lib/parseClaudeJsonArray";
-import type { PredictedHeatmapBucket, AudioFeatureWindow } from "@tingle/types";
+import type {
+  PredictedHeatmapBucket,
+  AudioFeatureWindow,
+  AudioAnalysisDiagnostics,
+} from "@tingle/types";
 
 // =============================================================================
 // audio.analyze
@@ -194,11 +198,24 @@ export const audioAnalyze = inngest.createFunction(
       // Without transcript segments or audio features, Claude would hallucinate
       // a heatmap from title/description alone — that data is not trustworthy.
       if (!timedSegments?.length && !audioFeaturesResolved) {
+        const diagnostics = buildAudioDiagnostics({
+          contentId,
+          audioWorkerStatus,
+          timedSegmentCount: 0,
+          audioFeatureWindowCount: 0,
+          predictedBuckets: [],
+          canonicalBucketCount: 0,
+        });
         await step.run("store-no-signal-status", async () => {
           const { error } = await db
             .from("insights_cache")
             .upsert(
-              { content_id: contentId, audio_worker_status: audioWorkerStatus },
+              {
+                content_id: contentId,
+                audio_worker_status: audioWorkerStatus,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- JSONB lacks index signature
+                audio_analysis_diagnostics: diagnostics as any,
+              },
               { onConflict: "content_id" }
             );
           if (error) throw new Error(`Failed to store audio_worker_status: ${error.message}`);
@@ -235,12 +252,17 @@ export const audioAnalyze = inngest.createFunction(
         return PredictedBucketSchema.parse(parsed);
       });
 
+      let unresolvedRawSlugCount = 0;
       const canonicalBuckets = predictedBuckets
         .map((b) => {
           const dominant = [
             ...new Set(
               b.dominant_trigger_slugs
-                .map((raw) => slugResolver.resolve(raw)?.slug)
+                .map((raw) => {
+                  const resolved = slugResolver.resolve(raw)?.slug ?? null;
+                  if (!resolved) unresolvedRawSlugCount += 1;
+                  return resolved;
+                })
                 .filter((s): s is string => !!s)
             ),
           ].slice(0, 3);
@@ -248,11 +270,58 @@ export const audioAnalyze = inngest.createFunction(
         })
         .filter((b) => b.dominant_trigger_slugs.length > 0);
 
+      const diagnostics = {
+        content_id: contentId,
+        audio_worker_status: audioWorkerStatus,
+        has_timed_segments: (timedSegments?.length ?? 0) > 0,
+        timed_segment_count: timedSegments?.length ?? 0,
+        has_audio_features: (audioFeaturesResolved?.length ?? 0) > 0,
+        audio_feature_window_count: audioFeaturesResolved?.length ?? 0,
+        predicted_bucket_count: predictedBuckets.length,
+        raw_slug_count: predictedBuckets.reduce((sum, b) => sum + b.dominant_trigger_slugs.length, 0),
+        unique_raw_slug_count: new Set(
+          predictedBuckets.flatMap((b) => b.dominant_trigger_slugs.map((s) => s.trim().toLowerCase())).filter(Boolean)
+        ).size,
+        unresolved_raw_slug_count: unresolvedRawSlugCount,
+        unresolved_unique_slug_count: 0,
+        canonical_bucket_count: canonicalBuckets.length,
+        dropped_bucket_count: Math.max(0, predictedBuckets.length - canonicalBuckets.length),
+        dropped_bucket_ratio:
+          predictedBuckets.length > 0
+            ? Number(((predictedBuckets.length - canonicalBuckets.length) / predictedBuckets.length).toFixed(4))
+            : 0,
+        dropped_due_to_unresolved_only_count: Math.max(0, predictedBuckets.length - canonicalBuckets.length),
+        generated_at: new Date().toISOString(),
+      } satisfies AudioAnalysisDiagnostics;
+
+      const unresolvedUnique = new Set(
+        predictedBuckets
+          .flatMap((b) => b.dominant_trigger_slugs.map((s) => s.trim().toLowerCase()))
+          .filter(Boolean)
+          .filter((slug) => slugResolver.resolve(slug) === null)
+      ).size;
+      diagnostics.unresolved_unique_slug_count = unresolvedUnique;
+
+      console.log(
+        `[audio.analyze:diagnostics] contentId=${contentId} predicted=${diagnostics.predicted_bucket_count} ` +
+          `canonical=${diagnostics.canonical_bucket_count} rawSlugs=${diagnostics.raw_slug_count} ` +
+          `unresolvedRaw=${diagnostics.unresolved_raw_slug_count} unresolvedUnique=${diagnostics.unresolved_unique_slug_count} ` +
+          `timedSegments=${diagnostics.timed_segment_count} audioWindows=${diagnostics.audio_feature_window_count}`
+      );
+
       if (canonicalBuckets.length === 0) {
         await step.run("store-audio-worker-status-only", async () => {
           const { error } = await db
             .from("insights_cache")
-            .upsert({ content_id: contentId, audio_worker_status: audioWorkerStatus }, { onConflict: "content_id" });
+            .upsert(
+              {
+                content_id: contentId,
+                audio_worker_status: audioWorkerStatus,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- JSONB lacks index signature
+                audio_analysis_diagnostics: diagnostics as any,
+              },
+              { onConflict: "content_id" }
+            );
           if (error) throw new Error(`Failed to store audio_worker_status: ${error.message}`);
         });
         return { contentId, skipped: true, reason: "No peak buckets with resolvable trigger slugs" };
@@ -278,6 +347,8 @@ export const audioAnalyze = inngest.createFunction(
             {
               content_id: contentId,
               audio_worker_status: audioWorkerStatus,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- JSONB lacks index signature
+              audio_analysis_diagnostics: diagnostics as any,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any -- JSONB lacks index signature
               predicted_heatmap: buckets as any,
             },

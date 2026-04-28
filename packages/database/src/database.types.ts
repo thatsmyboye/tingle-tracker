@@ -411,6 +411,7 @@ export type Database = {
           status: Database["public"]["Enums"]["insight_status"];
           report: Json | null;
           predicted_heatmap: Json | null;
+          audio_analysis_diagnostics: Json | null;
           audio_worker_status: string | null;
           error_message: string | null;
           generated_at: string | null;
@@ -423,6 +424,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["insight_status"];
           report?: Json | null;
           predicted_heatmap?: Json | null;
+          audio_analysis_diagnostics?: Json | null;
           audio_worker_status?: string | null;
           error_message?: string | null;
           generated_at?: string | null;
@@ -435,6 +437,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["insight_status"];
           report?: Json | null;
           predicted_heatmap?: Json | null;
+          audio_analysis_diagnostics?: Json | null;
           audio_worker_status?: string | null;
           error_message?: string | null;
           generated_at?: string | null;
