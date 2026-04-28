@@ -247,19 +247,25 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
     Load the WAV file in 30-second chunks so memory stays constant regardless
     of video length (~2.6 MB per chunk at 22050 Hz mono float32).
     """
+    import soundfile as sf
+
+    # Probe the file with soundfile before starting so any format/codec problems
+    # are surfaced immediately rather than being swallowed inside the per-chunk loop.
     try:
         info = sf.info(wav_path)
+        duration_seconds = float(info.duration)
         log.info(
-            "wav probe path=%s format=%s subtype=%s samplerate=%d channels=%d frames=%d",
-            wav_path, info.format, info.subtype, info.samplerate, info.channels, info.frames,
+            "wav probe: samplerate=%d channels=%d frames=%d duration=%.1fs "
+            "format=%s subtype=%s seekable=%s path=%s",
+            info.samplerate, info.channels, info.frames, info.duration,
+            info.format, info.subtype, info.seekable, wav_path,
         )
-    except Exception as probe_exc:
-        log.warning("wav probe failed path=%s error=%s", wav_path, probe_exc)
-
-    try:
-        duration_seconds = float(librosa.get_duration(path=wav_path))
-    except Exception:
-        duration_seconds = 0.0
+    except Exception as probe_err:
+        log.warning("soundfile probe failed (%s) — falling back to librosa.get_duration", probe_err)
+        try:
+            duration_seconds = float(librosa.get_duration(path=wav_path))
+        except Exception:
+            duration_seconds = 0.0
 
     if not math.isfinite(duration_seconds) or duration_seconds <= 0:
         duration_seconds = float(fallback_duration_seconds or 0)
@@ -269,7 +275,8 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
 
     n_windows = math.ceil(duration_seconds / WINDOW_SECONDS)
     features = []
-    first_load_error_logged = False
+    first_load_err: Exception | None = None
+    short_y_count = 0
 
     for i in range(n_windows):
         offset = float(i * WINDOW_SECONDS)
@@ -287,16 +294,22 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
                 duration=float(WINDOW_SECONDS),
                 mono=True,
             )
-        except Exception as exc:
-            if not first_load_error_logged:
+        except Exception as load_err:
+            if first_load_err is None:
                 log.error(
-                    "librosa.load failed at offset=%.1f path=%s error=%s",
-                    offset, wav_path, exc,
+                    "librosa.load failed at offset=%.1fs (window %d/%d): %s",
+                    offset, i + 1, n_windows, load_err,
                 )
-                first_load_error_logged = True
+            first_load_err = load_err
             continue
 
         if len(y) < SR * 2:
+            short_y_count += 1
+            if short_y_count == 1:
+                log.warning(
+                    "short audio at offset=%.1fs: len(y)=%d (expected ~%d, minimum %d)",
+                    offset, len(y), SR * WINDOW_SECONDS, SR * 2,
+                )
             continue
 
         rms = float(np.sqrt(np.mean(y ** 2)))
@@ -313,8 +326,11 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
 
     if not features:
         log.error(
-            "extraction produced zero windows wav_path=%s n_windows=%d duration_seconds=%.1f",
-            wav_path, n_windows, duration_seconds,
+            "extraction produced 0 windows out of %d (load_errors=%s short_y=%d) path=%s",
+            n_windows,
+            "yes" if first_load_err is not None else "no",
+            short_y_count,
+            wav_path,
         )
 
     return features
