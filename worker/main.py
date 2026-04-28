@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import librosa
+import soundfile as sf
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
@@ -222,6 +223,7 @@ def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> l
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
+        "--postprocessor-args", "ffmpeg:-acodec pcm_s16le",
         "--no-playlist",
         "--retries", "10",
         "--fragment-retries", "10",

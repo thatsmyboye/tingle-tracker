@@ -152,10 +152,16 @@ export default function ContentDetailPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isAnonymous, authLoading, contentId]);
 
-  // Poll every 5 seconds while content or insights are still processing
+  // Poll every 5 seconds while content or insights are still processing,
+  // or while audio.analyze is still in-flight (audio_worker_status not yet written).
+  // audio.analyze runs in parallel with content.process and writes audio_worker_status
+  // only when it finishes — content can become "ready" before audio analysis completes.
   useEffect(() => {
     const isProcessing =
-      content?.status === "processing" || insights?.status === "generating" || insights?.status === "pending";
+      content?.status === "processing" ||
+      insights?.status === "generating" ||
+      insights?.status === "pending" ||
+      (content?.status === "ready" && insights !== null && insights.audio_worker_status === null);
 
     if (!isProcessing) {
       if (pollRef.current) {
@@ -194,7 +200,7 @@ export default function ContentDetailPage({
         pollRef.current = null;
       }
     };
-  }, [content?.status, insights?.status, contentId]);
+  }, [content?.status, insights?.status, insights?.audio_worker_status, contentId]);
 
   // ---- Guards ----------------------------------------------------------------
 
