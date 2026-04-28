@@ -37,6 +37,13 @@ export function buildTriggerSlugResolver(
     byNormSlug.set(normalizeTriggerSlug(t.slug), t);
   }
 
+  // Claude sometimes emits label-like values (e.g. "Close-up shots")
+  // instead of canonical slugs (e.g. "close-up"). Resolve those directly.
+  const byNormLabel = new Map<string, TriggerTagForResolve>();
+  for (const t of tags) {
+    byNormLabel.set(normalizeTriggerSlug(t.label), t);
+  }
+
   const aliasNormToTagId = new Map<string, string>();
   for (const a of aliases) {
     aliasNormToTagId.set(normalizeTriggerSlug(a.alias_slug), a.trigger_tag_id);
@@ -50,6 +57,8 @@ export function buildTriggerSlugResolver(
       if (!n) return null;
       const direct = byNormSlug.get(n);
       if (direct) return direct;
+      const labelMatch = byNormLabel.get(n);
+      if (labelMatch) return labelMatch;
       const tagId = aliasNormToTagId.get(n);
       if (!tagId) return null;
       return idToTag.get(tagId) ?? null;
