@@ -250,8 +250,8 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
     try:
         info = sf.info(wav_path)
         log.info(
-            "wav probe path=%s format=%s subtype=%s samplerate=%d channels=%d frames=%d seekable=%s",
-            wav_path, info.format, info.subtype, info.samplerate, info.channels, info.frames, info.seekable,
+            "wav probe path=%s format=%s subtype=%s samplerate=%d channels=%d frames=%d",
+            wav_path, info.format, info.subtype, info.samplerate, info.channels, info.frames,
         )
     except Exception as probe_exc:
         log.warning("wav probe failed path=%s error=%s", wav_path, probe_exc)
