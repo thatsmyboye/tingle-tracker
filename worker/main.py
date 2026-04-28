@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import librosa
+import soundfile as sf
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
@@ -222,6 +223,7 @@ def _yt_dlp_command(output_template: str, url: str, cookies_file: str = "") -> l
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
+        "--postprocessor-args", "ffmpeg:-acodec pcm_s16le",
         "--no-playlist",
         "--retries", "10",
         "--fragment-retries", "10",
@@ -246,6 +248,15 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
     of video length (~2.6 MB per chunk at 22050 Hz mono float32).
     """
     try:
+        info = sf.info(wav_path)
+        log.info(
+            "wav probe path=%s format=%s subtype=%s samplerate=%d channels=%d frames=%d seekable=%s",
+            wav_path, info.format, info.subtype, info.samplerate, info.channels, info.frames, info.seekable,
+        )
+    except Exception as probe_exc:
+        log.warning("wav probe failed path=%s error=%s", wav_path, probe_exc)
+
+    try:
         duration_seconds = float(librosa.get_duration(path=wav_path))
     except Exception:
         duration_seconds = 0.0
@@ -258,6 +269,7 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
 
     n_windows = math.ceil(duration_seconds / WINDOW_SECONDS)
     features = []
+    first_load_error_logged = False
 
     for i in range(n_windows):
         offset = float(i * WINDOW_SECONDS)
@@ -275,7 +287,13 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
                 duration=float(WINDOW_SECONDS),
                 mono=True,
             )
-        except Exception:
+        except Exception as exc:
+            if not first_load_error_logged:
+                log.error(
+                    "librosa.load failed at offset=%.1f path=%s error=%s",
+                    offset, wav_path, exc,
+                )
+                first_load_error_logged = True
             continue
 
         if len(y) < SR * 2:
@@ -292,6 +310,12 @@ def _extract_features_chunked(wav_path: str, fallback_duration_seconds: float) -
             "spectral_centroid": round(_finite(centroid), 2),
             "zero_crossing_rate": round(_finite(zcr), 6),
         })
+
+    if not features:
+        log.error(
+            "extraction produced zero windows wav_path=%s n_windows=%d duration_seconds=%.1f",
+            wav_path, n_windows, duration_seconds,
+        )
 
     return features
 
