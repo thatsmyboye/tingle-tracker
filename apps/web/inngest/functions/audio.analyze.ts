@@ -198,14 +198,24 @@ export const audioAnalyze = inngest.createFunction(
       // Without transcript segments or audio features, Claude would hallucinate
       // a heatmap from title/description alone — that data is not trustworthy.
       if (!timedSegments?.length && !audioFeaturesResolved) {
-        const diagnostics = buildAudioDiagnostics({
-          contentId,
-          audioWorkerStatus,
-          timedSegmentCount: 0,
-          audioFeatureWindowCount: 0,
-          predictedBuckets: [],
-          canonicalBucketCount: 0,
-        });
+        const diagnostics = {
+          content_id: contentId,
+          audio_worker_status: audioWorkerStatus,
+          has_timed_segments: false,
+          timed_segment_count: 0,
+          has_audio_features: false,
+          audio_feature_window_count: 0,
+          predicted_bucket_count: 0,
+          raw_slug_count: 0,
+          unique_raw_slug_count: 0,
+          unresolved_raw_slug_count: 0,
+          unresolved_unique_slug_count: 0,
+          canonical_bucket_count: 0,
+          dropped_bucket_count: 0,
+          dropped_bucket_ratio: 0,
+          dropped_due_to_unresolved_only_count: 0,
+          generated_at: new Date().toISOString(),
+        } satisfies AudioAnalysisDiagnostics;
         await step.run("store-no-signal-status", async () => {
           const { error } = await db
             .from("insights_cache")
