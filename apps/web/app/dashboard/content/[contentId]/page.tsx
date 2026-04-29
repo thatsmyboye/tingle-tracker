@@ -131,7 +131,8 @@ export default function ContentDetailPage({
         .from("creators")
         .select("plan")
         .eq("user_id", user.id)
-        .single();
+        .eq("is_batch_import", false)
+        .maybeSingle();
       if (planRes.data?.plan) {
         setCreatorPlan(planRes.data.plan as CreatorPlan);
       }
