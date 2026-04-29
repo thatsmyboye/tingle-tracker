@@ -14,7 +14,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
 
-  const { data, error } = await admin.serviceClient
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- watched_channels not yet in generated types
+  const { data, error } = await (admin.serviceClient as any)
     .from("watched_channels")
     .select("id, youtube_channel_id, channel_title, uploads_playlist_id, latest_video_count, is_active, last_refreshed_at, created_at")
     .order("created_at", { ascending: false });
@@ -54,7 +55,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data, error } = await admin.serviceClient
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- watched_channels not yet in generated types
+  const { data, error } = await (admin.serviceClient as any)
     .from("watched_channels")
     .upsert(
       {

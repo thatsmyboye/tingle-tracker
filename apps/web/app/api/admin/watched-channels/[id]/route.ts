@@ -38,7 +38,8 @@ export async function PATCH(
   if (parsed.data.is_active !== undefined) updates.is_active = parsed.data.is_active;
   if (parsed.data.latest_video_count !== undefined) updates.latest_video_count = parsed.data.latest_video_count;
 
-  const { data, error } = await admin.serviceClient
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- watched_channels not yet in generated types
+  const { data, error } = await (admin.serviceClient as any)
     .from("watched_channels")
     .update(updates)
     .eq("id", id)
@@ -66,7 +67,8 @@ export async function DELETE(
 
   const { id } = await params;
 
-  const { error } = await admin.serviceClient
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- watched_channels not yet in generated types
+  const { error } = await (admin.serviceClient as any)
     .from("watched_channels")
     .delete()
     .eq("id", id);
