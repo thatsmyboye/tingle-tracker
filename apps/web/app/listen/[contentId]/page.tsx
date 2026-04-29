@@ -55,7 +55,7 @@ interface SleepPromptData {
 // Heatmap helpers
 // =============================================================================
 
-const BUCKET_SIZE_MS = 30_000; // 30-second buckets
+const BUCKET_SIZE_MS = 10_000; // 10-second buckets
 
 // Placeholder buckets shown blurred to unauthenticated users.
 // Provides a sense of what the heatmap looks like before sign-up.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
@@ -56,6 +56,10 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAddVideo, setShowAddVideo] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const contentRef = useRef<ContentRow[]>([]);
+  contentRef.current = content;
 
   const [showCreatorForm, setShowCreatorForm] = useState(false);
   const [creatorName, setCreatorName] = useState("");
@@ -199,8 +203,55 @@ export default function DashboardPage() {
     } else if (!authLoading) {
       setLoadingData(false);
     }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isAnonymous, authLoading]);
+
+  // Poll every 5 s while any video is still pending/processing.
+  const hasInFlight = !loadingData && content.some(
+    (c) => c.status === "pending" || c.status === "processing"
+  );
+  useEffect(() => {
+    if (!hasInFlight) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
+    if (pollRef.current) return; // already polling
+
+    const supabase = getSupabaseBrowserClient();
+    pollRef.current = setInterval(async () => {
+      const inFlightIds = contentRef.current
+        .filter((c) => c.status === "pending" || c.status === "processing")
+        .map((c) => c.id);
+      if (inFlightIds.length === 0) return;
+
+      const { data } = await supabase
+        .from("content")
+        .select("id, status")
+        .in("id", inFlightIds);
+
+      if (!data) return;
+
+      const statusMap = new Map(data.map((d) => [d.id, d.status as ContentRow["status"]]));
+      setContent(contentRef.current.map((c) => {
+        const newStatus = statusMap.get(c.id);
+        return newStatus ? { ...c, status: newStatus } : c;
+      }));
+    }, 5000);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [hasInFlight]);
 
   // ---- Auth guard -----------------------------------------------------------
 
