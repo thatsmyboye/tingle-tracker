@@ -32,7 +32,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await userClient.rpc("get_recommended_content", {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- new RPC not yet in generated types
+  const { data, error } = await (userClient as any).rpc("get_recommended_content", {
     p_user_id: user.id,
     p_limit: parsed.data.limit,
   });

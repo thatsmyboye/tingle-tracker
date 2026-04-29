@@ -24,7 +24,8 @@ export async function GET(
 
   const db = getSupabaseServerClient();
 
-  const { data, error } = await db.rpc("find_similar_creators", {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- new RPC not yet in generated types
+  const { data, error } = await (db as any).rpc("find_similar_creators", {
     p_creator_id: creatorId,
     p_limit: parsed.data.limit,
   });
