@@ -33,24 +33,46 @@ export async function GET(request: Request) {
 
   const db = getSupabaseServerClient();
   const query = parsed.data.q;
-  const ilike = `%${query}%`;
+
+  // Split into words and OR across label + slug for each word.
+  // Querying trigger_tags directly avoids PostgREST failing to parse
+  // ilike values with spaces when used inside a foreign-table .or() filter.
+  const words = query.trim().split(/\s+/);
+  const tagFilters = words
+    .flatMap((w) => [`label.ilike.%${w}%`, `slug.ilike.%${w}%`])
+    .join(",");
+
+  const { data: matchedTags, error: tagError } = await db
+    .from("trigger_tags")
+    .select("id")
+    .or(tagFilters);
+
+  if (tagError) {
+    return NextResponse.json({ error: "Failed to search triggers." }, { status: 500 });
+  }
+
+  const tagIds = (matchedTags ?? []).map((t) => t.id);
+  if (tagIds.length === 0) {
+    return NextResponse.json({ results: [] });
+  }
 
   const { data, error } = await db
     .from("content_triggers")
     .select(`
       content_id,
       confidence,
+      trigger_tag_id,
       trigger_tags!inner(label, slug),
       content!inner(id, youtube_video_id, title, thumbnail_url, creator_id),
       content_trigger_moments(timestamp_ms, confidence),
       creators:content!inner(creators(display_name))
     `)
-    .or(`trigger_tags.label.ilike.${ilike},trigger_tags.slug.ilike.${ilike}`)
+    .in("trigger_tag_id", tagIds)
     .order("confidence", { ascending: false, nullsFirst: false })
     .limit(parsed.data.limit);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to search triggers." }, { status: 500 });
   }
 
   const rows: DiscoveryResult[] = (data ?? []).map((row: any) => {
