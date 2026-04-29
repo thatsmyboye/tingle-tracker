@@ -20,6 +20,17 @@ import type { BatchLinkPreview, BatchRunResult } from "@/app/api/admin/batch-ana
 
 // ---- Local types ------------------------------------------------------------
 
+interface WatchedChannel {
+  id: string;
+  youtube_channel_id: string;
+  channel_title: string | null;
+  uploads_playlist_id: string | null;
+  latest_video_count: number;
+  is_active: boolean;
+  last_refreshed_at: string | null;
+  created_at: string;
+}
+
 interface AdminCreator {
   id: string;
   display_name: string;
@@ -95,6 +106,15 @@ export default function AdminPage() {
   const [batchRunLoading, setBatchRunLoading] = useState(false);
   const [batchRunResult, setBatchRunResult] = useState<BatchRunResponse | null>(null);
 
+  // Watched channels state
+  const [watchedChannels, setWatchedChannels] = useState<WatchedChannel[]>([]);
+  const [watchedChannelsLoading, setWatchedChannelsLoading] = useState(false);
+  const [newChannelUrl, setNewChannelUrl] = useState("");
+  const [newChannelVideoCount, setNewChannelVideoCount] = useState(20);
+  const [addChannelLoading, setAddChannelLoading] = useState(false);
+  const [refreshCatalogLoading, setRefreshCatalogLoading] = useState(false);
+  const [watchedChannelsError, setWatchedChannelsError] = useState<string | null>(null);
+
   async function loadAdminData() {
     if (!user) return;
     const supabase = getSupabaseBrowserClient();
@@ -156,6 +176,12 @@ export default function AdminPage() {
       setLoadingData(false);
     });
   }, [user, authLoading]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    loadWatchedChannels().catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   // ---- Loading ---------------------------------------------------------------
 
@@ -274,6 +300,95 @@ export default function AdminPage() {
     }
   }
 
+  // ---- Watched channels helpers ----------------------------------------------
+
+  async function loadWatchedChannels() {
+    const supabase = getSupabaseBrowserClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    setWatchedChannelsLoading(true);
+    setWatchedChannelsError(null);
+    try {
+      const res = await fetch("/api/admin/watched-channels", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = (await res.json()) as { channels?: WatchedChannel[]; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to load watched channels.");
+      setWatchedChannels(json.channels ?? []);
+    } catch (err) {
+      setWatchedChannelsError(err instanceof Error ? err.message : "Failed to load watched channels");
+    } finally {
+      setWatchedChannelsLoading(false);
+    }
+  }
+
+  async function addWatchedChannel() {
+    if (!newChannelUrl.trim()) return;
+    const supabase = getSupabaseBrowserClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    setAddChannelLoading(true);
+    setWatchedChannelsError(null);
+    try {
+      const res = await fetch("/api/admin/watched-channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ channelUrl: newChannelUrl.trim(), latestVideoCount: newChannelVideoCount }),
+      });
+      const json = (await res.json()) as { channel?: WatchedChannel; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to add channel.");
+      setNewChannelUrl("");
+      await loadWatchedChannels();
+    } catch (err) {
+      setWatchedChannelsError(err instanceof Error ? err.message : "Failed to add channel");
+    } finally {
+      setAddChannelLoading(false);
+    }
+  }
+
+  async function toggleChannelActive(id: string, isActive: boolean) {
+    const supabase = getSupabaseBrowserClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    await fetch(`/api/admin/watched-channels/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ is_active: isActive }),
+    });
+    await loadWatchedChannels();
+  }
+
+  async function deleteWatchedChannel(id: string) {
+    const supabase = getSupabaseBrowserClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    await fetch(`/api/admin/watched-channels/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await loadWatchedChannels();
+  }
+
+  async function triggerCatalogRefresh() {
+    const supabase = getSupabaseBrowserClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    setRefreshCatalogLoading(true);
+    try {
+      await fetch("/api/admin/watched-channels/refresh", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } finally {
+      setRefreshCatalogLoading(false);
+    }
+  }
+
   // ---- Main view ------------------------------------------------------------
 
   return (
@@ -378,6 +493,106 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+      </section>
+
+      {/* Watched Channels */}
+      <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted">Watched Channels</h2>
+          <button
+            onClick={triggerCatalogRefresh}
+            disabled={refreshCatalogLoading}
+            className="rounded border border-tingle-purple/40 bg-tingle-purple/10 px-3 py-1.5 text-xs text-tingle-purple hover:bg-tingle-purple/20 disabled:opacity-40"
+          >
+            {refreshCatalogLoading ? "Queuing..." : "Refresh all now"}
+          </button>
+        </div>
+        <p className="text-xs text-surface-muted mb-3">
+          Auto-tracked channels — new videos are ingested weekly (Monday 03:00 UTC).
+        </p>
+
+        {watchedChannelsError && (
+          <p className="mb-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {watchedChannelsError}
+          </p>
+        )}
+
+        {/* Add channel form */}
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            type="text"
+            value={newChannelUrl}
+            onChange={(e) => setNewChannelUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addWatchedChannel(); }}
+            placeholder="https://www.youtube.com/@channelname"
+            className="flex-1 rounded border border-surface-border bg-surface px-3 py-1.5 text-xs text-white placeholder:text-surface-muted/60"
+          />
+          <label className="text-xs text-surface-muted whitespace-nowrap">
+            Latest N:
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={newChannelVideoCount}
+              onChange={(e) => setNewChannelVideoCount(Number(e.target.value || 20))}
+              className="ml-1 w-14 rounded border border-surface-border bg-surface px-2 py-1 text-xs text-white"
+            />
+          </label>
+          <button
+            onClick={addWatchedChannel}
+            disabled={addChannelLoading || !newChannelUrl.trim()}
+            className="rounded border border-tingle-aqua/40 bg-tingle-aqua/10 px-3 py-1.5 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40"
+          >
+            {addChannelLoading ? "Adding..." : "Add channel"}
+          </button>
+        </div>
+
+        {/* Channel list */}
+        {watchedChannelsLoading ? (
+          <div className="space-y-2">
+            {[1, 2].map((n) => (
+              <div key={n} className="h-10 rounded border border-surface-border bg-surface animate-pulse" />
+            ))}
+          </div>
+        ) : watchedChannels.length === 0 ? (
+          <p className="text-xs text-surface-muted">No watched channels yet.</p>
+        ) : (
+          <div className="divide-y divide-surface-border rounded border border-surface-border overflow-hidden">
+            {watchedChannels.map((ch) => (
+              <div key={ch.id} className="flex items-center gap-3 px-3 py-2 bg-surface">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-white truncate">{ch.channel_title ?? ch.youtube_channel_id}</p>
+                  <p className="text-[10px] text-surface-muted mt-0.5">
+                    {ch.youtube_channel_id}
+                    {ch.last_refreshed_at && (
+                      <> · refreshed {new Date(ch.last_refreshed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</>
+                    )}
+                  </p>
+                </div>
+                <span className="text-[10px] text-surface-muted whitespace-nowrap">
+                  N={ch.latest_video_count}
+                </span>
+                <button
+                  onClick={() => toggleChannelActive(ch.id, !ch.is_active)}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] uppercase tracking-wider border transition-colors",
+                    ch.is_active
+                      ? "border-tingle-aqua/30 bg-tingle-aqua/10 text-tingle-aqua hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400"
+                      : "border-surface-border bg-surface-muted/10 text-surface-muted hover:border-tingle-aqua/30 hover:text-tingle-aqua"
+                  )}
+                >
+                  {ch.is_active ? "active" : "paused"}
+                </button>
+                <button
+                  onClick={() => deleteWatchedChannel(ch.id)}
+                  className="text-[10px] text-surface-muted hover:text-red-400"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </section>
