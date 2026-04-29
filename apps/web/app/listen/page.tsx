@@ -74,6 +74,7 @@ export default function ListenPage() {
   const [triggerResults, setTriggerResults] = useState<DiscoveryMoment[]>([]);
   const [triggerLoading, setTriggerLoading] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [triggerSearched, setTriggerSearched] = useState(false);
 
   // Fetch trending on mount
   useEffect(() => {
@@ -128,17 +129,19 @@ export default function ListenPage() {
     }
     setTriggerLoading(true);
     setTriggerError(null);
+    setTriggerSearched(false);
     try {
       const res = await fetch(`/api/discovery/triggers?q=${encodeURIComponent(trimmed)}&limit=12`);
       const data = (await res.json()) as { results?: DiscoveryMoment[]; error?: string };
       if (!res.ok) {
-        setTriggerError(data.error ?? "Failed to search triggers.");
+        setTriggerError("Something went wrong — please try again.");
         setTriggerResults([]);
         return;
       }
       setTriggerResults(data.results ?? []);
+      setTriggerSearched(true);
     } catch {
-      setTriggerError("Network error while searching triggers.");
+      setTriggerError("Network error — please try again.");
       setTriggerResults([]);
     } finally {
       setTriggerLoading(false);
@@ -248,6 +251,12 @@ export default function ListenPage() {
             </button>
           </form>
           {triggerError && <p className="mt-2 text-xs text-red-400">{triggerError}</p>}
+
+          {triggerSearched && triggerResults.length === 0 && !triggerError && (
+            <p className="mt-3 text-xs text-surface-muted">
+              No triggers found for &ldquo;{triggerQuery}&rdquo; — try a simpler term like <em>whispering</em> or <em>tapping</em>.
+            </p>
+          )}
 
           {triggerResults.length > 0 && (
             <div className="mt-4 space-y-2">
