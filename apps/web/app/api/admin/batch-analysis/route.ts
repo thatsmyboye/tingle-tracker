@@ -86,6 +86,7 @@ export async function POST(request: Request) {
               youtube_channel_url: item.youtube_channel_id
                 ? `https://youtube.com/channel/${item.youtube_channel_id}`
                 : null,
+              is_batch_import: true,
             },
             { onConflict: "youtube_channel_id", ignoreDuplicates: false }
           )

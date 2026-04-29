@@ -84,6 +84,7 @@ export default function DashboardPage() {
         .from("creators")
         .select("id, display_name, youtube_channel_id")
         .eq("user_id", user.id)
+        .eq("is_batch_import", false)
         .maybeSingle(),
       supabase
         .from("user_profiles")

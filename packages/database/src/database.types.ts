@@ -19,6 +19,7 @@ export type Database = {
           youtube_channel_id: string | null;
           youtube_channel_url: string | null;
           is_verified: boolean;
+          is_batch_import: boolean;
           plan: Database["public"]["Enums"]["creator_plan"];
           stripe_customer_id: string | null;
           stripe_subscription_id: string | null;
@@ -36,6 +37,7 @@ export type Database = {
           youtube_channel_id?: string | null;
           youtube_channel_url?: string | null;
           is_verified?: boolean;
+          is_batch_import?: boolean;
           plan?: Database["public"]["Enums"]["creator_plan"];
           stripe_customer_id?: string | null;
           stripe_subscription_id?: string | null;
@@ -53,6 +55,7 @@ export type Database = {
           youtube_channel_id?: string | null;
           youtube_channel_url?: string | null;
           is_verified?: boolean;
+          is_batch_import?: boolean;
           plan?: Database["public"]["Enums"]["creator_plan"];
           stripe_customer_id?: string | null;
           stripe_subscription_id?: string | null;
