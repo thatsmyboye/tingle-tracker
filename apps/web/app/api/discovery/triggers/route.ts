@@ -56,9 +56,8 @@ export async function GET(request: Request) {
       confidence,
       trigger_tag_id,
       trigger_tags!inner(label, slug),
-      content!inner(id, youtube_video_id, title, thumbnail_url, creator_id),
-      content_trigger_moments(timestamp_ms, confidence),
-      creators:content!inner(creators(display_name))
+      content!inner(id, youtube_video_id, title, thumbnail_url, creator_id, creators(display_name)),
+      content_trigger_moments(timestamp_ms, confidence)
     `)
     .in("trigger_tag_id", tagIds);
 
@@ -81,7 +80,7 @@ export async function GET(request: Request) {
         title: r.content?.title ?? "Untitled",
         thumbnail_url: r.content?.thumbnail_url ?? null,
         creator_id: r.content?.creator_id ?? null,
-        creator_display_name: r.creators?.creators?.display_name ?? null,
+        creator_display_name: r.content?.creators?.display_name ?? null,
         match_count: 0,
         matched_triggers: [],
       });
