@@ -122,7 +122,6 @@ export default function AdminPage() {
   const [newChannelVideoCount, setNewChannelVideoCount] = useState(20);
   const [addChannelLoading, setAddChannelLoading] = useState(false);
   const [refreshCatalogLoading, setRefreshCatalogLoading] = useState(false);
-  const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [watchedChannelsError, setWatchedChannelsError] = useState<string | null>(null);
   const [taggingHealth, setTaggingHealth] = useState<TaggingHealthMetrics | null>(null);
   const [taggingHealthLoading, setTaggingHealthLoading] = useState(false);
@@ -359,31 +358,6 @@ export default function AdminPage() {
       setWatchedChannelsError(err instanceof Error ? err.message : "Failed to add channel");
     } finally {
       setAddChannelLoading(false);
-    }
-  }
-
-  async function bootstrapDiversityFirstChannels() {
-    const supabase = getSupabaseBrowserClient();
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) return;
-    setBootstrapLoading(true);
-    setWatchedChannelsError(null);
-    try {
-      const res = await fetch("/api/admin/watched-channels/bootstrap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "Failed to bootstrap diversity-first channels.");
-      await loadWatchedChannels();
-    } catch (err) {
-      setWatchedChannelsError(
-        err instanceof Error ? err.message : "Failed to bootstrap diversity-first channels"
-      );
-    } finally {
-      setBootstrapLoading(false);
     }
   }
 
@@ -638,16 +612,6 @@ export default function AdminPage() {
             {addChannelLoading ? "Adding..." : "Add channel"}
           </button>
         </div>
-        <div className="mb-4">
-          <button
-            onClick={bootstrapDiversityFirstChannels}
-            disabled={bootstrapLoading}
-            className="rounded border border-tingle-gold/40 bg-tingle-gold/10 px-3 py-1.5 text-xs text-tingle-gold hover:bg-tingle-gold/20 disabled:opacity-40"
-          >
-            {bootstrapLoading ? "Bootstrapping..." : "Bootstrap diversity-first top 5"}
-          </button>
-        </div>
-
         {/* Channel list */}
         {watchedChannelsLoading ? (
           <div className="space-y-2">

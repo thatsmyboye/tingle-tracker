@@ -88,6 +88,21 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+function pickDiverseSix(pool: TrendingItem[]): TrendingItem[] {
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  const seen = new Set<string>();
+  const result: TrendingItem[] = [];
+  for (const item of shuffled) {
+    const creatorKey = item.youtube_channel_id ?? item.creator_display_name ?? item.channel_title ?? item.id;
+    if (!seen.has(creatorKey)) {
+      seen.add(creatorKey);
+      result.push(item);
+      if (result.length === 6) break;
+    }
+  }
+  return result;
+}
+
 // =============================================================================
 // Page
 // =============================================================================
@@ -103,8 +118,9 @@ export default function ListenPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
 
-  // Trending
-  const [trending, setTrending] = useState<TrendingItem[]>([]);
+  // Featured tiles — randomly sampled from a larger pool, one item per creator
+  const [featuredPool, setFeaturedPool] = useState<TrendingItem[]>([]);
+  const [featured, setFeatured] = useState<TrendingItem[]>([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
 
   // Trigger search — lookahead + multiselect
@@ -119,13 +135,15 @@ export default function ListenPage() {
 
   const debouncedInput = useDebounce(lookaheadInput, 200);
 
-  // Fetch trending on mount
+  // Fetch a larger pool and randomly pick 6 unique-creator tiles
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     supabase
-      .rpc("get_trending_content", { p_limit: 6 })
+      .rpc("get_trending_content", { p_limit: 30 })
       .then(({ data }) => {
-        if (data) setTrending(data as TrendingItem[]);
+        const pool = (data ?? []) as TrendingItem[];
+        setFeaturedPool(pool);
+        setFeatured(pickDiverseSix(pool));
         setTrendingLoading(false);
       });
   }, []);
@@ -434,11 +452,21 @@ export default function ListenPage() {
         </div>
       </section>
 
-      {/* Trending */}
+      {/* Featured tiles */}
       <section className="max-w-4xl mx-auto px-6 pb-16">
-        <p className="text-xs uppercase tracking-widest text-surface-muted mb-5">
-          Trending this week
-        </p>
+        <div className="flex items-center justify-between mb-5">
+          <p className="text-xs uppercase tracking-widest text-surface-muted">
+            Trending this week
+          </p>
+          {featuredPool.length > 0 && (
+            <button
+              onClick={() => setFeatured(pickDiverseSix(featuredPool))}
+              className="text-[10px] uppercase tracking-widest text-surface-muted hover:text-tingle-aqua transition-colors"
+            >
+              Shuffle ↻
+            </button>
+          )}
+        </div>
 
         {trendingLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -449,7 +477,7 @@ export default function ListenPage() {
               />
             ))}
           </div>
-        ) : trending.length === 0 ? (
+        ) : featured.length === 0 ? (
           <div className="rounded-lg border border-surface-border bg-surface-elevated p-10 text-center">
             <p className="text-xs text-surface-muted leading-relaxed">
               No activity yet — paste a video above to be the first to log
@@ -458,7 +486,7 @@ export default function ListenPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {trending.map((item) => (
+            {featured.map((item) => (
               <TrendingCard key={item.id} item={item} />
             ))}
           </div>
