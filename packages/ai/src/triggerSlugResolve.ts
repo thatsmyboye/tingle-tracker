@@ -20,6 +20,10 @@ export function normalizeTriggerSlug(raw: string): string {
   return raw
     .trim()
     .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9\s_-]/g, " ")
     .replace(/_/g, "-")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")

@@ -290,6 +290,15 @@ export interface InsightReport {
     bucket_end_ms: number;
     description: string;
   }>;
+  /** Classification diagnostics for taxonomy quality monitoring */
+  tagging_health?: {
+    candidate_count: number;
+    resolved_count: number;
+    unresolved_count: number;
+    unresolved_unique_slugs: string[];
+    low_confidence_count: number;
+    phrase_fallback_resolved_count: number;
+  };
 }
 
 export interface SleepSession {

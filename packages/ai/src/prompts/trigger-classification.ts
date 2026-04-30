@@ -41,6 +41,15 @@ Return a JSON array of trigger matches. For each trigger present in the video, i
 - \`confidence\`: a number from 0.0 to 1.0 indicating how confident you are
 - \`reasoning\`: one sentence explaining why this trigger is present
 
+Map common phrasing to canonical slugs from the list above:
+- "cranial nerve exam", "cne", "neurological exam" -> cranial-nerve-exam
+- "ear to ear", "ear-to-ear", "binaural" -> binaural
+- "ear cupping", "cupped ears" -> ear-cupping
+- "medical exam", "doctor roleplay" -> roleplay
+- "dentist roleplay", "dental exam" -> dentist-roleplay
+- "hair play", "hair brushing", "haircut", "barber shop" -> hair-play, hair-brushing, or haircut-roleplay as appropriate
+- "sticky sounds", "tacky sounds", "honey/slime stretch sounds" -> sticky-sounds
+
 Only include triggers you are reasonably confident about (confidence >= 0.4).
 Order results by confidence descending.
 Use ONLY slugs that appear in the list above — do not invent or guess slugs.

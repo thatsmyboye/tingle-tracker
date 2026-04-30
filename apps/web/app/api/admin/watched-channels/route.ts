@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminAndGetServiceClient } from "@/app/api/admin/batch-analysis/shared";
 import { resolveYouTubeChannelMetadata } from "@/lib/youtube";
+import { DIVERSITY_FIRST_STARTER_CHANNELS } from "@/lib/admin/watchedChannelsStarter";
 
 const AddChannelSchema = z.object({
   channelUrl: z.string().trim().min(1),
@@ -14,8 +15,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- watched_channels not yet in generated types
-  const { data, error } = await (admin.serviceClient as any)
+  const { data, error } = await admin.serviceClient
     .from("watched_channels")
     .select("id, youtube_channel_id, channel_title, uploads_playlist_id, latest_video_count, is_active, last_refreshed_at, created_at")
     .order("created_at", { ascending: false });
@@ -31,6 +31,50 @@ export async function POST(request: Request) {
   const admin = await requireAdminAndGetServiceClient(request);
   if ("error" in admin) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
+  }
+
+  const url = new URL(request.url);
+  if (url.searchParams.get("mode") === "diversity-first") {
+    const results = [];
+    for (const starter of DIVERSITY_FIRST_STARTER_CHANNELS) {
+      try {
+        const channelMeta = await resolveYouTubeChannelMetadata(starter.channelUrl);
+        const { data, error } = await admin.serviceClient
+          .from("watched_channels")
+          .upsert(
+            {
+              youtube_channel_id: channelMeta.channelId,
+              channel_title: channelMeta.title,
+              uploads_playlist_id: channelMeta.uploadsPlaylistId,
+              latest_video_count: starter.latestVideoCount,
+              is_active: true,
+            },
+            { onConflict: "youtube_channel_id" }
+          )
+          .select("youtube_channel_id, channel_title")
+          .single();
+        if (error || !data) {
+          results.push({
+            label: starter.label,
+            status: "failed",
+            error: error?.message ?? "Unknown insert error",
+          });
+          continue;
+        }
+        results.push({
+          label: starter.label,
+          status: "upserted",
+          channel: data,
+        });
+      } catch (err) {
+        results.push({
+          label: starter.label,
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return NextResponse.json({ mode: "diversity-first", results });
   }
 
   let body: unknown;
@@ -55,8 +99,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- watched_channels not yet in generated types
-  const { data, error } = await (admin.serviceClient as any)
+  const { data, error } = await admin.serviceClient
     .from("watched_channels")
     .upsert(
       {
