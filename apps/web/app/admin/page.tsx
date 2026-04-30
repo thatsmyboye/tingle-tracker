@@ -63,6 +63,15 @@ interface BatchRunResponse {
   queued: number;
 }
 
+interface TaggingHealthMetrics {
+  scanned: number;
+  unresolved_count: number;
+  unresolved_rate: number;
+  low_confidence_count: number;
+  low_confidence_rate: number;
+  top_unresolved: Array<{ slug: string; count: number }>;
+}
+
 // ---- Style maps -------------------------------------------------------------
 
 const CONTENT_STATUS_STYLES: Record<AdminContent["status"], string> = {
@@ -113,7 +122,10 @@ export default function AdminPage() {
   const [newChannelVideoCount, setNewChannelVideoCount] = useState(20);
   const [addChannelLoading, setAddChannelLoading] = useState(false);
   const [refreshCatalogLoading, setRefreshCatalogLoading] = useState(false);
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [watchedChannelsError, setWatchedChannelsError] = useState<string | null>(null);
+  const [taggingHealth, setTaggingHealth] = useState<TaggingHealthMetrics | null>(null);
+  const [taggingHealthLoading, setTaggingHealthLoading] = useState(false);
 
   async function loadAdminData() {
     if (!user) return;
@@ -165,6 +177,7 @@ export default function AdminPage() {
       }
     }
     setInsights(insightMap);
+
     setLoadingData(false);
   }
 
@@ -180,6 +193,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (!isAdmin) return;
     loadWatchedChannels().catch(() => {});
+    loadTaggingHealth().catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
@@ -348,6 +362,31 @@ export default function AdminPage() {
     }
   }
 
+  async function bootstrapDiversityFirstChannels() {
+    const supabase = getSupabaseBrowserClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    setBootstrapLoading(true);
+    setWatchedChannelsError(null);
+    try {
+      const res = await fetch("/api/admin/watched-channels/bootstrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to bootstrap diversity-first channels.");
+      await loadWatchedChannels();
+    } catch (err) {
+      setWatchedChannelsError(
+        err instanceof Error ? err.message : "Failed to bootstrap diversity-first channels"
+      );
+    } finally {
+      setBootstrapLoading(false);
+    }
+  }
+
   async function toggleChannelActive(id: string, isActive: boolean) {
     const supabase = getSupabaseBrowserClient();
     const { data: sessionData } = await supabase.auth.getSession();
@@ -389,6 +428,26 @@ export default function AdminPage() {
     }
   }
 
+  async function loadTaggingHealth() {
+    const supabase = getSupabaseBrowserClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    setTaggingHealthLoading(true);
+    try {
+      const res = await fetch("/api/admin/tagging-health", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = (await res.json()) as { metrics?: TaggingHealthMetrics; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to load tagging health metrics.");
+      setTaggingHealth(json.metrics ?? null);
+    } catch (err) {
+      setWatchedChannelsError(err instanceof Error ? err.message : "Failed to load tagging health metrics");
+    } finally {
+      setTaggingHealthLoading(false);
+    }
+  }
+
   // ---- Main view ------------------------------------------------------------
 
   return (
@@ -414,6 +473,37 @@ export default function AdminPage() {
         <Stat label="Processing" value={pendingCount} color="tingle-gold" />
         <Stat label="Errors" value={errorCount} color="red" />
       </div>
+
+      <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted">Tagging Health</h2>
+          <button
+            onClick={loadTaggingHealth}
+            disabled={taggingHealthLoading}
+            className="rounded border border-surface-border px-3 py-1.5 text-xs text-surface-muted hover:text-tingle-aqua disabled:opacity-40"
+          >
+            {taggingHealthLoading ? "Refreshing..." : "Refresh metrics"}
+          </button>
+        </div>
+        {!taggingHealth ? (
+          <p className="text-xs text-surface-muted">Load metrics to review unresolved and low-confidence tagging rates.</p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-white">
+              Scanned <span className="text-tingle-aqua">{taggingHealth.scanned}</span> classified matches
+            </p>
+            <p className="text-xs text-surface-muted">
+              Unresolved: {taggingHealth.unresolved_count} ({Math.round(taggingHealth.unresolved_rate * 100)}%) ·
+              Low confidence (&lt;0.55): {taggingHealth.low_confidence_count} ({Math.round(taggingHealth.low_confidence_rate * 100)}%)
+            </p>
+            {taggingHealth.top_unresolved.length > 0 && (
+              <div className="text-xs text-surface-muted">
+                Top unresolved: {taggingHealth.top_unresolved.map((u) => `${u.slug} (${u.count})`).join(", ")}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Batch analysis tool */}
       <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
@@ -546,6 +636,15 @@ export default function AdminPage() {
             className="rounded border border-tingle-aqua/40 bg-tingle-aqua/10 px-3 py-1.5 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40"
           >
             {addChannelLoading ? "Adding..." : "Add channel"}
+          </button>
+        </div>
+        <div className="mb-4">
+          <button
+            onClick={bootstrapDiversityFirstChannels}
+            disabled={bootstrapLoading}
+            className="rounded border border-tingle-gold/40 bg-tingle-gold/10 px-3 py-1.5 text-xs text-tingle-gold hover:bg-tingle-gold/20 disabled:opacity-40"
+          >
+            {bootstrapLoading ? "Bootstrapping..." : "Bootstrap diversity-first top 5"}
           </button>
         </div>
 

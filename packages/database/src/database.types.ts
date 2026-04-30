@@ -74,6 +74,42 @@ export type Database = {
           },
         ];
       };
+      watched_channels: {
+        Row: {
+          id: string;
+          youtube_channel_id: string;
+          channel_title: string | null;
+          uploads_playlist_id: string | null;
+          latest_video_count: number;
+          is_active: boolean;
+          last_refreshed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          youtube_channel_id: string;
+          channel_title?: string | null;
+          uploads_playlist_id?: string | null;
+          latest_video_count?: number;
+          is_active?: boolean;
+          last_refreshed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          youtube_channel_id?: string;
+          channel_title?: string | null;
+          uploads_playlist_id?: string | null;
+          latest_video_count?: number;
+          is_active?: boolean;
+          last_refreshed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       trigger_tags: {
         Row: {
           id: string;

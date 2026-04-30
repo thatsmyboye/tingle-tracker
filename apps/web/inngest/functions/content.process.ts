@@ -46,6 +46,39 @@ const ListenerProfileSchema = z.object({
   notes: z.string().max(400).optional(),
 });
 
+const PHRASE_SLUG_HINTS: Array<{ phrase: string; slug: string }> = [
+  { phrase: "cranial nerve exam", slug: "cranial-nerve-exam" },
+  { phrase: "ear to ear", slug: "binaural" },
+  { phrase: "ear-to-ear", slug: "binaural" },
+  { phrase: "soft spoken", slug: "soft-speaking" },
+  { phrase: "soft-spoken", slug: "soft-speaking" },
+  { phrase: "mouth sounds", slug: "mouth-sounds" },
+  { phrase: "sticky sounds", slug: "sticky-sounds" },
+  { phrase: "hand movements", slug: "hand-movements" },
+  { phrase: "hair play", slug: "hair-play" },
+  { phrase: "haircut", slug: "haircut" },
+  { phrase: "dentist", slug: "dentist" },
+  { phrase: "barbershop", slug: "haircut" },
+];
+
+function inferPhraseBasedSlugCandidates(input: {
+  title: string;
+  description: string | null;
+  transcript: string | null;
+}): string[] {
+  const haystack = [input.title, input.description ?? "", input.transcript ?? ""]
+    .join(" ")
+    .toLowerCase();
+  if (!haystack.trim()) return [];
+  const candidates = new Set<string>();
+  for (const hint of PHRASE_SLUG_HINTS) {
+    if (haystack.includes(hint.phrase)) {
+      candidates.add(hint.slug);
+    }
+  }
+  return [...candidates];
+}
+
 export const contentProcess = inngest.createFunction(
   { id: "content.process", name: "Process Content: Classify Triggers", triggers: [{ event: "content/ingested" }] },
   async ({ event, step }) => {
@@ -210,6 +243,32 @@ export const contentProcess = inngest.createFunction(
       });
 
       const unresolvedMatches = claudeMatches.filter((match) => slugResolver.resolve(match.slug) === null);
+      let phraseFallbackResolved = 0;
+      if (unresolvedMatches.length > 0) {
+        const phraseCandidates = inferPhraseBasedSlugCandidates({
+          title: content.title,
+          description: content.description ?? null,
+          transcript: transcript ?? null,
+        });
+        for (const slug of phraseCandidates) {
+          const tag = slugResolver.resolve(slug);
+          if (!tag) continue;
+          const exists = resolvedTriggers.some((row) => row.trigger_tag_id === tag.id);
+          if (exists) continue;
+          resolvedTriggers.push({
+            content_id: contentId,
+            trigger_tag_id: tag.id,
+            source: "llm",
+            confidence: 0.45,
+            _label: tag.label,
+            _category: tag.category as "visual" | "aural" | "tactile_adjacent",
+            _display_group: tag.display_group ?? "sensory",
+            _reasoning: `Phrase fallback match from metadata/transcript for "${slug}".`,
+            _timestamps: inferTimestampsFromTimedTranscript(timedTranscript, tag.label, tag.slug),
+          });
+          phraseFallbackResolved += 1;
+        }
+      }
       if (unresolvedMatches.length > 0) {
         console.warn(
           `[content.process] unresolved slugs for contentId=${contentId}: ${unresolvedMatches
@@ -333,6 +392,8 @@ export const contentProcess = inngest.createFunction(
         const sortedTriggers = resolvedTriggers.sort((a, b) => b.confidence - a.confidence);
         const narrativeInputSource: NarrativeInputSource = transcript ? "transcript" : "title_description_only";
 
+        const unresolvedUnique = Array.from(new Set(unresolvedMatches.map((m) => normalizeTriggerSlug(m.slug))));
+        const lowConfidenceCount = resolvedTriggers.filter((row) => row.confidence < 0.5).length;
         const report: InsightReport = {
           generated_at: new Date().toISOString(),
           content_id: contentId,
@@ -351,6 +412,14 @@ export const contentProcess = inngest.createFunction(
               timestamp_examples_ms: t._timestamps.slice(0, 5).map((ts) => Math.max(0, ts - 5000)),
             })),
           heatmap_highlights: [],
+          tagging_health: {
+            candidate_count: claudeMatches.length,
+            resolved_count: resolvedTriggers.length,
+            unresolved_count: unresolvedMatches.length,
+            unresolved_unique_slugs: unresolvedUnique.slice(0, 25),
+            low_confidence_count: lowConfidenceCount,
+            phrase_fallback_resolved_count: phraseFallbackResolved,
+          },
         };
 
         const { error } = await db

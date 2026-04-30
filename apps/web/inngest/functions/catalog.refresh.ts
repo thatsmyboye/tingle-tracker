@@ -29,12 +29,10 @@ export const catalogRefresh = inngest.createFunction(
   },
   async ({ step }) => {
     const db = getSupabaseServerClient();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- watched_channels not yet in generated types
-    const anyDb = db as any;
 
     // ---- 1. Fetch active watched channels ------------------------------------
     const channels = await step.run("fetch-watched-channels", async () => {
-      const { data, error } = await anyDb
+      const { data, error } = await db
         .from("watched_channels")
         .select("id, youtube_channel_id, channel_title, uploads_playlist_id, latest_video_count")
         .eq("is_active", true);
@@ -81,7 +79,7 @@ export const catalogRefresh = inngest.createFunction(
         const newVideoIds = videoIds.filter((id) => !existingIds.has(id));
 
         if (newVideoIds.length === 0) {
-          await anyDb
+          await db
             .from("watched_channels")
             .update({ last_refreshed_at: new Date().toISOString() })
             .eq("id", channel.id);
@@ -133,7 +131,7 @@ export const catalogRefresh = inngest.createFunction(
           }
         }
 
-        await anyDb
+        await db
           .from("watched_channels")
           .update({ last_refreshed_at: new Date().toISOString() })
           .eq("id", channel.id);
