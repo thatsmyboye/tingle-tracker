@@ -6,14 +6,42 @@
 // Public page (no auth required). Two sections:
 //   1. YouTube URL input — resolves any video URL to a content row and
 //      navigates to /listen/[contentId] so the listener can start logging.
-//   2. Trending grid — videos ranked by tingle activity in the past 7 days,
-//      fetched via the get_trending_content() RPC.
+//   2. Trigger search — lookahead multiselect over trigger_tags, results
+//      ranked by number of selected triggers matched (relevance).
+//   3. Trending grid — videos ranked by tingle activity in the past 7 days.
 // =============================================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@tingle/database";
+// These mirror the exported types in the API routes — kept in sync manually
+interface TriggerSuggestion {
+  id: string;
+  label: string;
+  slug: string;
+  category: string;
+}
+
+interface MatchedTrigger {
+  trigger_tag_id: string;
+  trigger_label: string;
+  trigger_slug: string;
+  confidence: number;
+  timestamp_ms: number | null;
+  lead_in_start_ms: number | null;
+}
+
+interface ContentMatch {
+  content_id: string;
+  youtube_video_id: string;
+  title: string;
+  thumbnail_url: string | null;
+  creator_id: string | null;
+  creator_display_name: string | null;
+  match_count: number;
+  matched_triggers: MatchedTrigger[];
+}
 
 // ---- Types ------------------------------------------------------------------
 
@@ -27,19 +55,6 @@ interface TrendingItem {
   thumbnail_url: string | null;
   creator_display_name: string | null;
   tingle_count: number;
-}
-
-interface DiscoveryMoment {
-  trigger_tag_id: string;
-  trigger_label: string;
-  trigger_category: "visual" | "aural" | "tactile_adjacent";
-  content_id: string;
-  content_title: string;
-  youtube_video_id: string;
-  creator_display_name: string | null;
-  confidence: number | null;
-  timestamp_ms: number;
-  lead_in_start_ms: number;
 }
 
 // ---- Helpers ----------------------------------------------------------------
@@ -57,6 +72,22 @@ function formatTingleCount(n: number): string {
   return String(n);
 }
 
+function formatMs(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 // =============================================================================
 // Page
 // =============================================================================
@@ -64,17 +95,29 @@ function formatTingleCount(n: number): string {
 export default function ListenPage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerInputRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLUListElement>(null);
 
+  // URL input
   const [url, setUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
+
+  // Trending
   const [trending, setTrending] = useState<TrendingItem[]>([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
-  const [triggerQuery, setTriggerQuery] = useState("");
-  const [triggerResults, setTriggerResults] = useState<DiscoveryMoment[]>([]);
-  const [triggerLoading, setTriggerLoading] = useState(false);
-  const [triggerError, setTriggerError] = useState<string | null>(null);
-  const [triggerSearched, setTriggerSearched] = useState(false);
+
+  // Trigger search — lookahead + multiselect
+  const [lookaheadInput, setLookaheadInput] = useState("");
+  const [suggestions, setSuggestions] = useState<TriggerSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedTriggers, setSelectedTriggers] = useState<TriggerSuggestion[]>([]);
+  const [searchResults, setSearchResults] = useState<ContentMatch[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const debouncedInput = useDebounce(lookaheadInput, 200);
 
   // Fetch trending on mount
   useEffect(() => {
@@ -87,6 +130,58 @@ export default function ListenPage() {
       });
   }, []);
 
+  // Lookahead fetch
+  useEffect(() => {
+    const q = debouncedInput.trim();
+    if (!q) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/discovery/triggers/suggest?q=${encodeURIComponent(q)}`)
+      .then((r) => r.json())
+      .then((d: { suggestions?: TriggerSuggestion[] }) => {
+        if (cancelled) return;
+        const filtered = (d.suggestions ?? []).filter(
+          (s) => !selectedTriggers.some((sel) => sel.id === s.id)
+        );
+        setSuggestions(filtered);
+        setShowSuggestions(filtered.length > 0);
+      })
+      .catch(() => {
+        if (!cancelled) setSuggestions([]);
+      });
+    return () => { cancelled = true; };
+  }, [debouncedInput, selectedTriggers]);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (
+        triggerInputRef.current?.contains(e.target as Node) ||
+        suggestionsRef.current?.contains(e.target as Node)
+      ) return;
+      setShowSuggestions(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  const addTrigger = useCallback((tag: TriggerSuggestion) => {
+    setSelectedTriggers((prev) =>
+      prev.some((t) => t.id === tag.id) ? prev : [...prev, tag]
+    );
+    setLookaheadInput("");
+    setSuggestions([]);
+    setShowSuggestions(false);
+    triggerInputRef.current?.focus();
+  }, []);
+
+  const removeTrigger = useCallback((id: string) => {
+    setSelectedTriggers((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = url.trim();
@@ -95,10 +190,8 @@ export default function ListenPage() {
       inputRef.current?.focus();
       return;
     }
-
     setInputError(null);
     setIsSubmitting(true);
-
     try {
       const res = await fetch("/api/content/resolve", {
         method: "POST",
@@ -106,12 +199,10 @@ export default function ListenPage() {
         body: JSON.stringify({ youtubeUrl: trimmed }),
       });
       const data = (await res.json()) as { contentId?: string; error?: string };
-
       if (!res.ok || !data.contentId) {
         setInputError(data.error ?? "Something went wrong. Please try again.");
         return;
       }
-
       router.push(`/listen/${data.contentId}`);
     } catch {
       setInputError("Network error — please try again.");
@@ -122,29 +213,30 @@ export default function ListenPage() {
 
   async function handleTriggerSearch(e: React.FormEvent) {
     e.preventDefault();
-    const trimmed = triggerQuery.trim();
-    if (!trimmed) {
-      setTriggerError("Enter a trigger name, like whispering or tapping.");
-      return;
-    }
-    setTriggerLoading(true);
-    setTriggerError(null);
-    setTriggerSearched(false);
+    if (selectedTriggers.length === 0) return;
+
+    setSearchLoading(true);
+    setSearchError(null);
+    setHasSearched(false);
+
     try {
-      const res = await fetch(`/api/discovery/triggers?q=${encodeURIComponent(trimmed)}&limit=12`);
-      const data = (await res.json()) as { results?: DiscoveryMoment[]; error?: string };
+      const tagIds = selectedTriggers.map((t) => t.id).join(",");
+      const res = await fetch(
+        `/api/discovery/triggers?tagIds=${encodeURIComponent(tagIds)}&limit=20`
+      );
+      const data = (await res.json()) as { results?: ContentMatch[]; error?: string };
       if (!res.ok) {
-        setTriggerError("Something went wrong — please try again.");
-        setTriggerResults([]);
+        setSearchError("Something went wrong — please try again.");
+        setSearchResults([]);
         return;
       }
-      setTriggerResults(data.results ?? []);
-      setTriggerSearched(true);
+      setSearchResults(data.results ?? []);
+      setHasSearched(true);
     } catch {
-      setTriggerError("Network error — please try again.");
-      setTriggerResults([]);
+      setSearchError("Network error — please try again.");
+      setSearchResults([]);
     } finally {
-      setTriggerLoading(false);
+      setSearchLoading(false);
     }
   }
 
@@ -225,62 +317,125 @@ export default function ListenPage() {
         </p>
       </section>
 
-      {/* Trending */}
-      <section className="max-w-4xl mx-auto px-6 pb-16">
-        <div className="mb-10 rounded-lg border border-surface-border bg-surface-elevated p-4">
+      {/* Trigger search */}
+      <section className="max-w-4xl mx-auto px-6 pb-10">
+        <div className="rounded-lg border border-surface-border bg-surface-elevated p-4">
           <p className="text-xs uppercase tracking-widest text-surface-muted mb-3">
             Find by trigger
           </p>
-          <form onSubmit={handleTriggerSearch} className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              value={triggerQuery}
-              onChange={(e) => {
-                setTriggerQuery(e.target.value);
-                setTriggerError(null);
-              }}
-              placeholder="Search tingles: whispering, tapping, brushing..."
-              className="flex-1 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white placeholder:text-surface-muted/50 focus:border-tingle-aqua/50 focus:outline-none focus:ring-1 focus:ring-tingle-aqua/30"
-            />
-            <button
-              type="submit"
-              disabled={triggerLoading || !triggerQuery.trim()}
-              className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40"
-            >
-              {triggerLoading ? "Searching…" : "Search"}
-            </button>
-          </form>
-          {triggerError && <p className="mt-2 text-xs text-red-400">{triggerError}</p>}
 
-          {triggerSearched && triggerResults.length === 0 && !triggerError && (
+          <form onSubmit={handleTriggerSearch}>
+            {/* Input + suggestions */}
+            <div className="relative">
+              <div className="flex gap-2">
+                <input
+                  ref={triggerInputRef}
+                  type="text"
+                  value={lookaheadInput}
+                  onChange={(e) => {
+                    setLookaheadInput(e.target.value);
+                    setSearchError(null);
+                  }}
+                  onFocus={() => {
+                    if (suggestions.length > 0) setShowSuggestions(true);
+                  }}
+                  placeholder={
+                    selectedTriggers.length === 0
+                      ? "Type a trigger: whispering, tapping, brushing…"
+                      : "Add another trigger…"
+                  }
+                  className="flex-1 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white placeholder:text-surface-muted/50 focus:border-tingle-aqua/50 focus:outline-none focus:ring-1 focus:ring-tingle-aqua/30"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="submit"
+                  disabled={searchLoading || selectedTriggers.length === 0}
+                  className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-4 py-2 text-xs text-tingle-aqua hover:bg-tingle-aqua/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                >
+                  {searchLoading ? "Searching…" : "Search"}
+                </button>
+              </div>
+
+              {/* Suggestions dropdown */}
+              {showSuggestions && (
+                <ul
+                  ref={suggestionsRef}
+                  className="absolute z-20 mt-1 w-full rounded-lg border border-surface-border bg-surface-elevated shadow-lg overflow-hidden"
+                >
+                  {suggestions.map((s) => (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          addTrigger(s);
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-sm text-white hover:bg-tingle-aqua/10 transition-colors text-left"
+                      >
+                        <span>{s.label}</span>
+                        <span className="text-[10px] text-surface-muted capitalize ml-2 shrink-0">
+                          {s.category.replace("_", " ")}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Selected trigger chips */}
+            {selectedTriggers.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {selectedTriggers.map((t) => (
+                  <span
+                    key={t.id}
+                    className="inline-flex items-center gap-1 rounded-full border border-tingle-aqua/30 bg-tingle-aqua/10 px-2.5 py-0.5 text-xs text-tingle-aqua"
+                  >
+                    {t.label}
+                    <button
+                      type="button"
+                      onClick={() => removeTrigger(t.id)}
+                      className="hover:text-white transition-colors leading-none"
+                      aria-label={`Remove ${t.label}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </form>
+
+          {searchError && (
+            <p className="mt-2 text-xs text-red-400">{searchError}</p>
+          )}
+
+          {hasSearched && searchResults.length === 0 && !searchError && (
             <p className="mt-3 text-xs text-surface-muted">
-              No triggers found for &ldquo;{triggerQuery}&rdquo; — try a simpler term like <em>whispering</em> or <em>tapping</em>.
+              No content found matching{" "}
+              {selectedTriggers.map((t) => t.label).join(", ")} — try fewer
+              triggers or different ones.
             </p>
           )}
 
-          {triggerResults.length > 0 && (
+          {searchResults.length > 0 && (
             <div className="mt-4 space-y-2">
-              {triggerResults.map((row) => (
-                <a
-                  key={`${row.content_id}:${row.trigger_tag_id}:${row.timestamp_ms}`}
-                  href={`/listen/${row.content_id}?startMs=${row.lead_in_start_ms}`}
-                  className="flex items-center justify-between gap-3 rounded border border-surface-border bg-surface px-3 py-2 hover:border-tingle-aqua/30"
-                >
-                  <div className="min-w-0">
-                    <p className="text-xs text-white truncate">{row.content_title}</p>
-                    <p className="text-[10px] text-surface-muted truncate">
-                      {row.creator_display_name ?? "Unknown creator"} · {row.trigger_label}
-                    </p>
-                  </div>
-                  <span className="text-[10px] text-tingle-aqua tabular-nums whitespace-nowrap">
-                    Start {formatDuration(Math.floor(row.lead_in_start_ms / 1000))}
-                  </span>
-                </a>
+              {searchResults.map((result) => (
+                <ContentMatchCard
+                  key={result.content_id}
+                  result={result}
+                  totalSelected={selectedTriggers.length}
+                />
               ))}
             </div>
           )}
         </div>
+      </section>
 
+      {/* Trending */}
+      <section className="max-w-4xl mx-auto px-6 pb-16">
         <p className="text-xs uppercase tracking-widest text-surface-muted mb-5">
           Trending this week
         </p>
@@ -314,11 +469,86 @@ export default function ListenPage() {
 }
 
 // =============================================================================
+// ContentMatchCard
+// =============================================================================
+
+function ContentMatchCard({
+  result,
+  totalSelected,
+}: {
+  result: ContentMatch;
+  totalSelected: number;
+}) {
+  // Pick the trigger moment with the earliest timestamp for "start at" CTA
+  const bestMoment = result.matched_triggers
+    .filter((t): t is MatchedTrigger & { lead_in_start_ms: number } =>
+      t.lead_in_start_ms != null
+    )
+    .sort((a, b) => a.lead_in_start_ms - b.lead_in_start_ms)[0];
+
+  const href = bestMoment
+    ? `/listen/${result.content_id}?startMs=${bestMoment.lead_in_start_ms}`
+    : `/listen/${result.content_id}`;
+
+  const allMatch = result.match_count === totalSelected;
+
+  return (
+    <a
+      href={href}
+      className="flex items-start gap-3 rounded border border-surface-border bg-surface px-3 py-2.5 hover:border-tingle-aqua/30 transition-colors"
+    >
+      {/* Relevance badge */}
+      <div className="shrink-0 flex flex-col items-center pt-0.5">
+        <span
+          className={`text-[10px] tabular-nums font-bold leading-none ${
+            allMatch ? "text-tingle-aqua" : "text-surface-muted"
+          }`}
+        >
+          {result.match_count}/{totalSelected}
+        </span>
+        <span className="text-[9px] text-surface-muted leading-none mt-0.5">match</span>
+      </div>
+
+      {/* Content info */}
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-white truncate">{result.title}</p>
+        <p className="text-[10px] text-surface-muted truncate mb-1.5">
+          {result.creator_display_name ?? "Unknown creator"}
+        </p>
+
+        {/* Matched trigger pills */}
+        <div className="flex flex-wrap gap-1">
+          {result.matched_triggers.map((t) => (
+            <span
+              key={t.trigger_tag_id}
+              className="inline-flex items-center gap-1 rounded-full bg-surface-elevated border border-surface-border px-2 py-0.5 text-[10px] text-surface-muted"
+            >
+              {t.trigger_label}
+              {t.lead_in_start_ms != null && (
+                <span className="text-tingle-aqua/70">
+                  @ {formatMs(t.lead_in_start_ms)}
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Start CTA */}
+      {bestMoment && (
+        <span className="text-[10px] text-tingle-aqua tabular-nums whitespace-nowrap shrink-0 pt-0.5">
+          Start {formatMs(bestMoment.lead_in_start_ms)}
+        </span>
+      )}
+    </a>
+  );
+}
+
+// =============================================================================
 // TrendingCard
 // =============================================================================
 
 function TrendingCard({ item }: { item: TrendingItem }) {
-  // Prefer claimed creator display name; fall back to raw channel title
   const displayName =
     item.creator_display_name ?? item.channel_title ?? "Unknown";
   const duration = formatDuration(item.duration_seconds);
