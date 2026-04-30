@@ -92,14 +92,27 @@ function pickDiverseSix(pool: TrendingItem[]): TrendingItem[] {
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   const seen = new Set<string>();
   const result: TrendingItem[] = [];
+
+  // First pass: one item per creator
   for (const item of shuffled) {
     const creatorKey = item.youtube_channel_id ?? item.creator_display_name ?? item.channel_title ?? item.id;
     if (!seen.has(creatorKey)) {
       seen.add(creatorKey);
       result.push(item);
+      if (result.length === 6) return result;
+    }
+  }
+
+  // Second pass: fill remaining slots with any items not already in result
+  const picked = new Set(result.map((i) => i.id));
+  for (const item of shuffled) {
+    if (!picked.has(item.id)) {
+      picked.add(item.id);
+      result.push(item);
       if (result.length === 6) break;
     }
   }
+
   return result;
 }
 
