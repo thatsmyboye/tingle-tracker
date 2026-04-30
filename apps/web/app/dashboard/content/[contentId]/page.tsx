@@ -6,7 +6,16 @@ import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
 import { useAuth } from "@/hooks/useAuth";
 import { HeatmapChart } from "@/components/HeatmapChart";
-import type { ContentTingleHeatmapRow, InsightReport, PredictedHeatmapBucket, CreatorPlan } from "@tingle/types";
+import type { ContentTingleHeatmapRow, InsightReport, PredictedHeatmapBucket, CreatorPlan, TriggerCategory } from "@tingle/types";
+
+interface TriggerMoment {
+  id: string;
+  trigger_tag_id: string;
+  timestamp_ms: number;
+  confidence: number | null;
+  source: "creator" | "llm" | "both";
+  trigger_tags: { label: string; category: TriggerCategory } | null;
+}
 
 // =============================================================================
 // /dashboard/content/[contentId] — Per-video heatmap + trigger analysis
@@ -90,6 +99,7 @@ export default function ContentDetailPage({
   const [heatmap, setHeatmap] = useState<ContentTingleHeatmapRow[]>([]);
   const [insights, setInsights] = useState<InsightsCacheRow | null>(null);
   const [creatorPlan, setCreatorPlan] = useState<CreatorPlan>("free");
+  const [triggerMoments, setTriggerMoments] = useState<TriggerMoment[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,7 +110,7 @@ export default function ContentDetailPage({
     setError(null);
     const supabase = getSupabaseBrowserClient();
 
-    const [contentRes, heatmapRes, insightsRes] = await Promise.all([
+    const [contentRes, heatmapRes, insightsRes, momentsRes] = await Promise.all([
       supabase.from("content").select("*").eq("id", contentId).single(),
       supabase
         .from("content_tingle_heatmap")
@@ -112,6 +122,11 @@ export default function ContentDetailPage({
         .select("*")
         .eq("content_id", contentId)
         .maybeSingle(),
+      supabase
+        .from("content_trigger_moments")
+        .select("id, trigger_tag_id, timestamp_ms, confidence, source, trigger_tags(label, category)")
+        .eq("content_id", contentId)
+        .order("timestamp_ms", { ascending: true }),
     ]);
 
     if (contentRes.error) {
@@ -123,6 +138,8 @@ export default function ContentDetailPage({
     setContent(contentRes.data as ContentDetail);
     setHeatmap((heatmapRes.data ?? []) as ContentTingleHeatmapRow[]);
     setInsights((insightsRes.data as InsightsCacheRow | null) ?? null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- joined shape not in generated types
+    setTriggerMoments((momentsRes.data ?? []) as any as TriggerMoment[]);
 
     // Fetch the creator's plan — used to gate the predicted heatmap preview.
     // user.id is always set here (auth guard runs before loadData is called).
@@ -417,6 +434,19 @@ export default function ContentDetailPage({
         )}
       </section>
 
+      {/* Trigger moments timeline */}
+      {triggerMoments.length > 0 && (
+        <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">
+            Trigger Timeline
+          </h2>
+          <TriggerTimeline
+            moments={triggerMoments}
+            durationSeconds={content.duration_seconds}
+          />
+        </section>
+      )}
+
       {/* Content analysis */}
       <section className="rounded-lg border border-surface-border bg-surface-elevated p-4">
         <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">Content Analysis</h2>
@@ -650,6 +680,123 @@ function ContentAnalysis({ insights }: { insights: InsightsCacheRow | null }) {
 
       <p className="text-[10px] text-surface-muted">
         Generated {new Date(report.generated_at).toLocaleString()}
+      </p>
+    </div>
+  );
+}
+
+// =============================================================================
+// TriggerTimeline
+// =============================================================================
+
+const TRIGGER_CATEGORY_STYLES: Record<string, string> = {
+  visual: "bg-tingle-aqua",
+  aural: "bg-tingle-purple",
+  tactile_adjacent: "bg-tingle-gold",
+};
+
+const TRIGGER_CATEGORY_TEXT: Record<string, string> = {
+  visual: "text-tingle-aqua",
+  aural: "text-tingle-purple",
+  tactile_adjacent: "text-tingle-gold",
+};
+
+function TriggerTimeline({
+  moments,
+  durationSeconds,
+}: {
+  moments: TriggerMoment[];
+  durationSeconds: number | null;
+}) {
+  const durationMs = durationSeconds ? durationSeconds * 1000 : null;
+
+  // Group moments by trigger label for the legend
+  const byTrigger = new Map<string, { label: string; category: string; moments: TriggerMoment[] }>();
+  for (const m of moments) {
+    const label = m.trigger_tags?.label ?? m.trigger_tag_id;
+    const category = m.trigger_tags?.category ?? "aural";
+    const existing = byTrigger.get(label);
+    if (existing) {
+      existing.moments.push(m);
+    } else {
+      byTrigger.set(label, { label, category, moments: [m] });
+    }
+  }
+
+  const triggers = Array.from(byTrigger.values()).sort((a, b) => a.label.localeCompare(b.label));
+
+  // Scrubber bar — all moments positioned by timestamp
+  const lastMs = durationMs ?? Math.max(...moments.map((m) => m.timestamp_ms), 1);
+
+  return (
+    <div className="space-y-4">
+      {/* Position bar */}
+      <div>
+        <div className="relative h-6 rounded bg-surface-muted/15 overflow-hidden">
+          {moments.map((m) => {
+            const pct = Math.min((m.timestamp_ms / lastMs) * 100, 100);
+            const cat = m.trigger_tags?.category ?? "aural";
+            return (
+              <div
+                key={m.id}
+                title={`${m.trigger_tags?.label ?? "trigger"} — ${formatMs(m.timestamp_ms)}`}
+                className={cn(
+                  "absolute top-0 bottom-0 w-0.5 opacity-70 hover:opacity-100 transition-opacity",
+                  TRIGGER_CATEGORY_STYLES[cat] ?? "bg-tingle-aqua",
+                )}
+                style={{ left: `${pct}%` }}
+              />
+            );
+          })}
+        </div>
+        <div className="flex justify-between mt-0.5">
+          <span className="text-[9px] text-surface-muted">0:00</span>
+          {durationSeconds && (
+            <span className="text-[9px] text-surface-muted">{formatMs(durationSeconds * 1000)}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Per-trigger rows */}
+      <div className="space-y-3">
+        {triggers.map(({ label, category, moments: tMoments }) => (
+          <div key={label}>
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className={cn(
+                  "w-2 h-2 rounded-full flex-shrink-0",
+                  TRIGGER_CATEGORY_STYLES[category] ?? "bg-tingle-aqua",
+                )}
+              />
+              <span className="text-xs text-white flex-1">{label}</span>
+              <span className={cn("text-[10px] tabular-nums", TRIGGER_CATEGORY_TEXT[category] ?? "text-tingle-aqua")}>
+                {tMoments.length} moment{tMoments.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="relative h-2 rounded bg-surface-muted/15 overflow-hidden ml-4">
+              {tMoments.map((m) => {
+                const pct = Math.min((m.timestamp_ms / lastMs) * 100, 100);
+                const opacity = m.confidence != null ? Math.max(0.4, m.confidence) : 0.7;
+                return (
+                  <div
+                    key={m.id}
+                    title={`${formatMs(m.timestamp_ms)}${m.confidence != null ? ` (${Math.round(m.confidence * 100)}% conf)` : ""}`}
+                    className={cn(
+                      "absolute top-0 bottom-0 w-1 rounded-sm",
+                      TRIGGER_CATEGORY_STYLES[category] ?? "bg-tingle-aqua",
+                    )}
+                    style={{ left: `${pct}%`, opacity }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[10px] text-surface-muted">
+        {moments.length} trigger moment{moments.length !== 1 ? "s" : ""} detected across {triggers.length} trigger{triggers.length !== 1 ? "s" : ""}.
+        Tick opacity reflects LLM confidence.
       </p>
     </div>
   );

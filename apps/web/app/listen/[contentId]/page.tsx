@@ -51,6 +51,14 @@ interface SleepPromptData {
   creatorName: string;
 }
 
+interface UpNextItem {
+  id: string;
+  youtube_video_id: string;
+  title: string;
+  thumbnail_url: string | null;
+  creator_display_name: string | null;
+}
+
 // =============================================================================
 // Heatmap helpers
 // =============================================================================
@@ -129,6 +137,9 @@ export default function ListenContentPage({
   // Session-end prompt shown when the video finishes
   const [videoEnded, setVideoEnded] = useState(false);
 
+  // Up-next recommendations shown in the session-end modal
+  const [upNextItems, setUpNextItems] = useState<UpNextItem[]>([]);
+
   // Sleep mode
   const [sleepMode, setSleepMode] = useState(false);
   const [sleepSessionId, setSleepSessionId] = useState<string | null>(null);
@@ -179,6 +190,72 @@ export default function ListenContentPage({
         }
       });
   }, [authLoading, isAuthenticated, user, contentId]);
+
+  // ---- Fetch up-next when video ends ----------------------------------------
+
+  useEffect(() => {
+    if (!videoEnded) return;
+
+    const supabase = getSupabaseBrowserClient();
+
+    async function fetchUpNext() {
+      if (isAuthenticated && user) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (token) {
+          try {
+            const res = await fetch("/api/discovery/recommended?limit=6", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const json = (await res.json()) as {
+                results?: Array<{
+                  content_id: string;
+                  youtube_video_id: string;
+                  title: string;
+                  thumbnail_url: string | null;
+                  creator_display_name: string | null;
+                }>;
+              };
+              const items = (json.results ?? [])
+                .filter((r) => r.content_id !== contentId)
+                .slice(0, 3)
+                .map((r) => ({
+                  id: r.content_id,
+                  youtube_video_id: r.youtube_video_id,
+                  title: r.title,
+                  thumbnail_url: r.thumbnail_url,
+                  creator_display_name: r.creator_display_name,
+                }));
+              if (items.length > 0) {
+                setUpNextItems(items);
+                return;
+              }
+            }
+          } catch {
+            // fall through to trending
+          }
+        }
+      }
+
+      // Fallback: trending content (works for unauthenticated users too)
+      const { data } = await supabase.rpc("get_trending_content", { p_limit: 6 });
+      if (data) {
+        const items = (data as Array<{
+          id: string;
+          youtube_video_id: string;
+          title: string;
+          thumbnail_url: string | null;
+          creator_display_name: string | null;
+        }>)
+          .filter((r) => r.id !== contentId)
+          .slice(0, 3);
+        setUpNextItems(items);
+      }
+    }
+
+    fetchUpNext();
+  }, [videoEnded, isAuthenticated, user, contentId]);
 
   // ---- onLog callback -------------------------------------------------------
 
@@ -696,6 +773,47 @@ export default function ListenContentPage({
                 Keep listening
               </button>
             </div>
+
+            {/* Up next */}
+            {upNextItems.length > 0 && (
+              <div className="border-t border-surface-border pt-4 space-y-2">
+                <p className="text-[10px] uppercase tracking-widest text-surface-muted">
+                  Up next
+                </p>
+                {upNextItems.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={`/listen/${item.id}`}
+                    onClick={handleDismissEndModal}
+                    className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface px-3 py-2 hover:border-tingle-aqua/30 transition-colors group"
+                  >
+                    {item.thumbnail_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.thumbnail_url}
+                        alt=""
+                        className="w-14 h-9 rounded object-cover shrink-0"
+                      />
+                    ) : (
+                      <div className="w-14 h-9 rounded bg-surface-elevated shrink-0 flex items-center justify-center">
+                        <span className="text-surface-muted/40 text-base">▶</span>
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-white line-clamp-1 leading-snug">
+                        {item.title}
+                      </p>
+                      <p className="text-[10px] text-surface-muted truncate">
+                        {item.creator_display_name ?? "Unknown creator"}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-tingle-aqua/70 group-hover:text-tingle-aqua transition-colors shrink-0">
+                      →
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

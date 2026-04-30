@@ -3,11 +3,11 @@
 // =============================================================================
 // /profile — Listener profile page
 //
-// Shows the logged-in user's tingle statistics, trigger affinity, and
-// discovery preferences. Auth-guarded by middleware.
+// ASMR fingerprint, tingle stats, sleep insights, trigger trend, discovery.
+// Auth-guarded by middleware.
 // =============================================================================
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, useMemo, type FormEvent } from "react";
 import Link from "next/link";
 import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
@@ -19,6 +19,28 @@ const CATEGORY_STYLES = {
   aural: "border-tingle-purple/30 bg-tingle-purple/10 text-tingle-purple",
   tactile_adjacent: "border-tingle-gold/30 bg-tingle-gold/10 text-tingle-gold",
 } as const;
+
+const CATEGORY_FILL = {
+  visual: "bg-tingle-aqua",
+  aural: "bg-tingle-purple",
+  tactile_adjacent: "bg-tingle-gold",
+} as const;
+
+const CATEGORY_LABEL = {
+  visual: "Visual",
+  aural: "Aural",
+  tactile_adjacent: "Tactile",
+} as const;
+
+interface MonthBucket {
+  label: string; // "Jan '26"
+  count: number;
+}
+
+interface SleepCreatorStat {
+  creator_display_name: string;
+  sleep_count: number;
+}
 
 export default function ProfilePage() {
   const { user, isLoading: authLoading, signOut } = useAuth();
@@ -36,12 +58,22 @@ export default function ProfilePage() {
   const [savingDiscovery, setSavingDiscovery] = useState(false);
 
   const [totalTingles, setTotalTingles] = useState(0);
+  const [listeningMinutes, setListeningMinutes] = useState(0);
+  const [monthlyTrend, setMonthlyTrend] = useState<MonthBucket[]>([]);
+  const [sleepSessionCount, setSleepSessionCount] = useState(0);
+  const [sleepCreators, setSleepCreators] = useState<SleepCreatorStat[]>([]);
 
   useEffect(() => {
     if (authLoading || !user) return;
 
     const supabase = getSupabaseBrowserClient();
     setLoadingData(true);
+
+    // Six months ago for trend window
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1);
+    sixMonthsAgo.setHours(0, 0, 0, 0);
 
     Promise.all([
       supabase
@@ -59,17 +91,101 @@ export default function ProfilePage() {
         .from("tingle_events")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id),
+      // Max timestamp per content — proxy for cumulative listening time with tingles
+      supabase
+        .from("tingle_events")
+        .select("content_id, timestamp_ms")
+        .eq("user_id", user.id),
+      // Monthly trend — past 6 months
+      supabase
+        .from("tingle_events")
+        .select("created_at")
+        .eq("user_id", user.id)
+        .gte("created_at", sixMonthsAgo.toISOString()),
+      // Sleep sessions
+      supabase
+        .from("sleep_sessions")
+        .select("id, fell_asleep, content_id, content(creator_id, creators(display_name))")
+        .eq("user_id", user.id)
+        .eq("fell_asleep", true),
     ])
-      .then(([profileRes, affinityRes, tingleCountRes]) => {
+      .then(([profileRes, affinityRes, tingleCountRes, tingleEventsRes, trendRes, sleepRes]) => {
         if (profileRes.error) { setError(profileRes.error.message); return; }
         if (affinityRes.error) { setError(affinityRes.error.message); return; }
         if (tingleCountRes.error) { setError(tingleCountRes.error.message); return; }
+
         setProfile(profileRes.data as UserProfile | null);
         setAffinity((affinityRes.data ?? []) as UserTriggerAffinityRow[]);
         setTotalTingles(tingleCountRes.count ?? 0);
+
+        // Cumulative listening: sum max timestamp_ms per content_id
+        if (tingleEventsRes.data && tingleEventsRes.data.length > 0) {
+          const maxByContent = new Map<string, number>();
+          for (const ev of tingleEventsRes.data) {
+            const prev = maxByContent.get(ev.content_id) ?? 0;
+            if (ev.timestamp_ms > prev) maxByContent.set(ev.content_id, ev.timestamp_ms);
+          }
+          const totalMs = Array.from(maxByContent.values()).reduce((a, b) => a + b, 0);
+          setListeningMinutes(Math.round(totalMs / 60000));
+        }
+
+        // Monthly trend buckets
+        if (trendRes.data) {
+          const buckets = new Map<string, number>();
+          for (const ev of trendRes.data) {
+            const d = new Date(ev.created_at);
+            const key = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+            buckets.set(key, (buckets.get(key) ?? 0) + 1);
+          }
+          // Fill in the last 6 months in order
+          const ordered: MonthBucket[] = [];
+          for (let i = 5; i >= 0; i--) {
+            const d = new Date();
+            d.setMonth(d.getMonth() - i);
+            const label = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+            ordered.push({ label, count: buckets.get(label) ?? 0 });
+          }
+          setMonthlyTrend(ordered);
+        }
+
+        // Sleep sessions
+        if (!sleepRes.error && sleepRes.data) {
+          setSleepSessionCount(sleepRes.data.length);
+
+          // Count by creator
+          const creatorCounts = new Map<string, number>();
+          for (const row of sleepRes.data) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- joined shape
+            const creator = (row as any).content?.creators;
+            const name: string | null = creator?.display_name ?? null;
+            if (name) {
+              creatorCounts.set(name, (creatorCounts.get(name) ?? 0) + 1);
+            }
+          }
+          const sorted = Array.from(creatorCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([creator_display_name, sleep_count]) => ({ creator_display_name, sleep_count }));
+          setSleepCreators(sorted);
+        }
       })
       .finally(() => setLoadingData(false));
   }, [user, authLoading]);
+
+  // Fingerprint: category totals from affinity
+  const categoryTotals = useMemo(() => {
+    const totals: Record<string, number> = { visual: 0, aural: 0, tactile_adjacent: 0 };
+    for (const row of affinity) {
+      const cat = row.trigger_category;
+      if (cat in totals) totals[cat] += row.tingle_count;
+    }
+    return totals;
+  }, [affinity]);
+
+  const fingerprintTotal = useMemo(
+    () => Object.values(categoryTotals).reduce((a, b) => a + b, 0),
+    [categoryTotals],
+  );
 
   async function saveName(e: FormEvent) {
     e.preventDefault();
@@ -110,10 +226,10 @@ export default function ProfilePage() {
     return (
       <main className="min-h-screen bg-surface font-mono p-6 max-w-2xl mx-auto">
         <div className="space-y-3 mt-8">
-          {[1, 2, 3].map((n) => (
+          {[1, 2, 3, 4].map((n) => (
             <div
               key={n}
-              className="h-16 rounded border border-surface-border bg-surface-elevated animate-pulse"
+              className="h-20 rounded border border-surface-border bg-surface-elevated animate-pulse"
             />
           ))}
         </div>
@@ -134,6 +250,13 @@ export default function ProfilePage() {
   const displayName =
     profile?.display_name ?? user?.email?.split("@")[0] ?? "Listener";
 
+  const trendMax = Math.max(...monthlyTrend.map((b) => b.count), 1);
+
+  const listeningDisplay =
+    listeningMinutes >= 60
+      ? `${(listeningMinutes / 60).toFixed(1)}h`
+      : `${listeningMinutes}m`;
+
   return (
     <main className="min-h-screen bg-surface font-mono p-6 max-w-2xl mx-auto">
       {/* Header */}
@@ -153,10 +276,7 @@ export default function ProfilePage() {
             Home
           </Link>
           <span>·</span>
-          <button
-            onClick={signOut}
-            className="hover:text-tingle-aqua"
-          >
+          <button onClick={signOut} className="hover:text-tingle-aqua">
             Sign out
           </button>
         </div>
@@ -214,8 +334,8 @@ export default function ProfilePage() {
 
       {/* Stats */}
       <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
-        <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-3">Stats</h2>
-        <div className="flex gap-6">
+        <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-3">Your numbers</h2>
+        <div className="flex flex-wrap gap-6">
           <div>
             <p className="text-2xl text-tingle-aqua tabular-nums">{totalTingles.toLocaleString()}</p>
             <p className="text-[10px] uppercase tracking-wider text-surface-muted">Total tingles</p>
@@ -224,29 +344,173 @@ export default function ProfilePage() {
             <p className="text-2xl text-tingle-aqua tabular-nums">{affinity.length}</p>
             <p className="text-[10px] uppercase tracking-wider text-surface-muted">Triggers found</p>
           </div>
+          {listeningMinutes > 0 && (
+            <div>
+              <p className="text-2xl text-tingle-aqua tabular-nums">{listeningDisplay}</p>
+              <p className="text-[10px] uppercase tracking-wider text-surface-muted">Tingle time logged</p>
+            </div>
+          )}
+          {sleepSessionCount > 0 && (
+            <div>
+              <p className="text-2xl text-tingle-purple tabular-nums">{sleepSessionCount}</p>
+              <p className="text-[10px] uppercase tracking-wider text-surface-muted">Times fell asleep</p>
+            </div>
+          )}
         </div>
       </section>
 
+      {/* ASMR Fingerprint */}
+      {fingerprintTotal > 0 && (
+        <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">
+            Your ASMR fingerprint
+          </h2>
+          <div className="space-y-3">
+            {(["visual", "aural", "tactile_adjacent"] as const).map((cat) => {
+              const count = categoryTotals[cat];
+              const pct = fingerprintTotal > 0 ? (count / fingerprintTotal) * 100 : 0;
+              return (
+                <div key={cat}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-xs text-white/80">{CATEGORY_LABEL[cat]}</span>
+                    <span className="text-xs text-surface-muted tabular-nums">
+                      {count > 0 ? `${Math.round(pct)}%` : "—"}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-surface-muted/20 overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full transition-all duration-500", CATEGORY_FILL[cat])}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Dominant type badge */}
+          {(() => {
+            const dominant = (["visual", "aural", "tactile_adjacent"] as const).reduce(
+              (best, cat) => (categoryTotals[cat] > categoryTotals[best] ? cat : best),
+              "visual" as "visual" | "aural" | "tactile_adjacent",
+            );
+            const dominantPct = Math.round((categoryTotals[dominant] / fingerprintTotal) * 100);
+            if (dominantPct < 50) return null;
+            return (
+              <p className="mt-3 text-[10px] text-surface-muted">
+                Primarily{" "}
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 border text-[10px] uppercase tracking-wider",
+                    CATEGORY_STYLES[dominant],
+                  )}
+                >
+                  {CATEGORY_LABEL[dominant]}
+                </span>{" "}
+                — {dominantPct}% of your tingles come from {CATEGORY_LABEL[dominant].toLowerCase()} triggers.
+              </p>
+            );
+          })()}
+        </section>
+      )}
+
+      {/* Monthly tingle trend */}
+      {monthlyTrend.some((b) => b.count > 0) && (
+        <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">
+            Tingle trend — last 6 months
+          </h2>
+          <div className="flex items-end gap-2 h-16">
+            {monthlyTrend.map((bucket) => (
+              <div key={bucket.label} className="flex-1 flex flex-col items-center gap-1">
+                <div className="w-full flex items-end" style={{ height: "44px" }}>
+                  <div
+                    className="w-full rounded-t bg-tingle-aqua/60 hover:bg-tingle-aqua transition-colors"
+                    style={{
+                      height: bucket.count > 0 ? `${Math.max(4, (bucket.count / trendMax) * 44)}px` : "2px",
+                      opacity: bucket.count === 0 ? 0.2 : 1,
+                    }}
+                    title={`${bucket.count} tingles`}
+                  />
+                </div>
+                <span className="text-[9px] text-surface-muted text-center leading-tight">
+                  {bucket.label}
+                </span>
+              </div>
+            ))}
+          </div>
+          {(() => {
+            const recent = monthlyTrend.slice(-2);
+            if (recent.length < 2 || recent[0].count === 0) return null;
+            const change = recent[1].count - recent[0].count;
+            if (change === 0) return null;
+            return (
+              <p className="mt-2 text-[10px] text-surface-muted">
+                {change > 0 ? "↑" : "↓"}{" "}
+                {Math.abs(change)} tingles {change > 0 ? "more" : "fewer"} than last month.
+              </p>
+            );
+          })()}
+        </section>
+      )}
+
+      {/* Sleep insights */}
+      {sleepSessionCount > 0 && (
+        <section className="mb-6 rounded-lg border border-tingle-purple/20 bg-tingle-purple/5 p-4">
+          <h2 className="text-xs uppercase tracking-widest text-tingle-purple/80 mb-3">
+            Sleep insights
+          </h2>
+          <p className="text-sm text-white mb-3">
+            You&apos;ve fallen asleep to ASMR{" "}
+            <span className="text-tingle-purple tabular-nums">{sleepSessionCount}</span>{" "}
+            {sleepSessionCount === 1 ? "time" : "times"}.
+          </p>
+          {sleepCreators.length > 0 && (
+            <div className="space-y-2">
+              {sleepCreators.map((c) => (
+                <div key={c.creator_display_name} className="flex items-center justify-between">
+                  <span className="text-xs text-white/80">{c.creator_display_name}</span>
+                  <span className="text-xs text-tingle-purple tabular-nums">
+                    {c.sleep_count}×
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Log tingles CTA */}
-      <section className="mb-6 rounded-lg border border-tingle-aqua/30 bg-tingle-aqua/5 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-widest text-tingle-aqua mb-1">Ready to log?</p>
-          <p className="text-sm text-white">Tap the button each time you feel a tingle while a video plays.</p>
-          <p className="text-xs text-surface-muted mt-0.5">Your trigger affinity updates automatically.</p>
-        </div>
-        <Link
-          href="/listen"
-          className="flex-shrink-0 rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors whitespace-nowrap"
-        >
-          Log tingles →
-        </Link>
-      </section>
+      {totalTingles === 0 && (
+        <section className="mb-6 rounded-lg border border-tingle-aqua/30 bg-tingle-aqua/5 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-tingle-aqua mb-1">Ready to log?</p>
+            <p className="text-sm text-white">Tap the button each time you feel a tingle while a video plays.</p>
+            <p className="text-xs text-surface-muted mt-0.5">Your trigger affinity updates automatically.</p>
+          </div>
+          <Link
+            href="/listen"
+            className="flex-shrink-0 rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors whitespace-nowrap"
+          >
+            Log tingles →
+          </Link>
+        </section>
+      )}
 
       {/* Trigger affinity */}
       <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
-        <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-3">
-          Trigger affinity
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted">
+            Trigger affinity
+          </h2>
+          {totalTingles > 0 && (
+            <Link
+              href="/listen"
+              className="text-xs text-tingle-aqua hover:underline underline-offset-2"
+            >
+              Log more →
+            </Link>
+          )}
+        </div>
         {affinity.length === 0 ? (
           <div className="py-6 text-center">
             <p className="text-xs text-surface-muted mb-2">
@@ -261,25 +525,43 @@ export default function ProfilePage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {affinity.map((row) => (
-              <div key={row.trigger_tag_id} className="flex items-center gap-3">
-                <span className="flex-1 text-sm text-white">{row.trigger_label}</span>
-                <span
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[10px] uppercase tracking-wider border",
-                    CATEGORY_STYLES[row.trigger_category as keyof typeof CATEGORY_STYLES],
-                  )}
-                >
-                  {row.trigger_category.replace("_", " ")}
-                </span>
-                <span className="text-xs text-tingle-aqua tabular-nums">
-                  {row.tingle_count} tingles
-                </span>
-                <span className="text-xs text-surface-muted tabular-nums">
-                  avg {Number(row.avg_intensity).toFixed(1)}
-                </span>
-              </div>
-            ))}
+            {affinity.map((row, idx) => {
+              const maxCount = affinity[0].tingle_count;
+              const pct = maxCount > 0 ? (row.tingle_count / maxCount) * 100 : 0;
+              return (
+                <div key={row.trigger_tag_id}>
+                  <div className="flex items-center gap-3">
+                    <span className="w-4 text-[10px] text-surface-muted tabular-nums text-right flex-shrink-0">
+                      {idx + 1}
+                    </span>
+                    <span className="flex-1 text-sm text-white">{row.trigger_label}</span>
+                    <span
+                      className={cn(
+                        "rounded px-2 py-0.5 text-[10px] uppercase tracking-wider border",
+                        CATEGORY_STYLES[row.trigger_category as keyof typeof CATEGORY_STYLES],
+                      )}
+                    >
+                      {row.trigger_category.replace("_", " ")}
+                    </span>
+                    <span className="text-xs text-tingle-aqua tabular-nums">
+                      {row.tingle_count}
+                    </span>
+                    <span className="text-xs text-surface-muted tabular-nums">
+                      avg {Number(row.avg_intensity).toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="ml-7 mt-1 h-0.5 rounded-full bg-surface-muted/20 overflow-hidden">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        CATEGORY_FILL[row.trigger_category as keyof typeof CATEGORY_FILL] ?? "bg-tingle-aqua",
+                      )}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
