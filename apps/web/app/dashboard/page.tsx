@@ -18,6 +18,13 @@ interface Creator {
   youtube_channel_id: string | null;
 }
 
+interface SimilarCreatorResult {
+  similar_creator_id: string;
+  similar_creator_name: string;
+  shared_trigger_count: number;
+  overlap_score: number;
+}
+
 interface ContentRow {
   id: string;
   creator_id: string;
@@ -56,6 +63,13 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAddVideo, setShowAddVideo] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [similarCreators, setSimilarCreators] = useState<SimilarCreatorResult[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
+
+  // Aggregate audience insights
+  const [audienceTotalListeners, setAudienceTotalListeners] = useState<number | null>(null);
+  const [audienceSleepRate, setAudienceSleepRate] = useState<number | null>(null);
+  const [audienceSleepCount, setAudienceSleepCount] = useState(0);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const contentRef = useRef<ContentRow[]>([]);
@@ -168,6 +182,44 @@ export default function DashboardPage() {
     }
 
     setLoadingData(false);
+
+    // Aggregate audience insights — unique listeners + sleep rate for this creator's content
+    if (contentList.length > 0) {
+      const contentIds = contentList.map((c) => c.id);
+      const [listenersRes, sleepRes] = await Promise.all([
+        supabase
+          .from("tingle_events")
+          .select("user_id", { count: "exact" })
+          .in("content_id", contentIds),
+        supabase
+          .from("sleep_sessions")
+          .select("fell_asleep", { count: "exact" })
+          .in("content_id", contentIds)
+          .not("fell_asleep", "is", null),
+      ]);
+      if (listenersRes.data) {
+        const uniqueListeners = new Set(listenersRes.data.map((r) => r.user_id)).size;
+        setAudienceTotalListeners(uniqueListeners);
+      }
+      if (!sleepRes.error && sleepRes.data) {
+        const total = sleepRes.data.length;
+        const fellAsleep = sleepRes.data.filter((r) => r.fell_asleep === true).length;
+        setAudienceSleepCount(fellAsleep);
+        setAudienceSleepRate(total > 0 ? fellAsleep / total : null);
+      }
+    }
+
+    // Fetch similar creators in the background after main data loads
+    setLoadingSimilar(true);
+    fetch(`/api/discovery/similar-creators/${creatorData.id}?limit=5`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (Array.isArray(json.results)) {
+          setSimilarCreators(json.results as SimilarCreatorResult[]);
+        }
+      })
+      .catch(() => { /* best-effort, silent */ })
+      .finally(() => setLoadingSimilar(false));
   }
 
   async function handleCreateCreator(e: FormEvent) {
@@ -483,6 +535,85 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Aggregate audience insights */}
+      {(audienceTotalListeners !== null || audienceSleepRate !== null) && (
+        <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-4">
+            Audience insights
+          </h2>
+          <div className="flex flex-wrap gap-6">
+            {audienceTotalListeners !== null && (
+              <div>
+                <p className="text-2xl text-tingle-aqua tabular-nums">
+                  {audienceTotalListeners.toLocaleString()}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-surface-muted">Unique listeners</p>
+              </div>
+            )}
+            {audienceSleepCount > 0 && (
+              <div>
+                <p className="text-2xl text-tingle-purple tabular-nums">{audienceSleepCount}</p>
+                <p className="text-[10px] uppercase tracking-wider text-surface-muted">Sleep sessions</p>
+              </div>
+            )}
+            {audienceSleepRate !== null && audienceSleepRate > 0 && (
+              <div>
+                <p className="text-2xl text-tingle-purple tabular-nums">
+                  {Math.round(audienceSleepRate * 100)}%
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-surface-muted">Sleep rate</p>
+              </div>
+            )}
+            {Object.keys(heatmapTotals).length > 0 && (
+              <div>
+                <p className="text-2xl text-tingle-aqua tabular-nums">
+                  {Object.values(heatmapTotals).reduce((a, b) => a + b, 0).toLocaleString()}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-surface-muted">Total tingles</p>
+              </div>
+            )}
+          </div>
+          {audienceSleepRate !== null && audienceSleepRate >= 0.5 && (
+            <p className="mt-3 text-[10px] text-surface-muted">
+              Over half your listeners fell asleep during your content — a strong signal for deep ASMR efficacy.
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Similar creators panel */}
+      {(loadingSimilar || similarCreators.length > 0) && (
+        <section className="mb-6 rounded-lg border border-surface-border bg-surface-elevated p-4">
+          <h2 className="text-xs uppercase tracking-widest text-surface-muted mb-3">
+            Creators like you
+          </h2>
+          {loadingSimilar ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((n) => (
+                <div key={n} className="h-8 rounded bg-surface-muted/20 animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {similarCreators.map((c) => (
+                <div key={c.similar_creator_id} className="flex items-center gap-3">
+                  <span className="flex-1 text-sm text-white truncate">{c.similar_creator_name}</span>
+                  <span className="text-xs text-surface-muted tabular-nums">
+                    {c.shared_trigger_count} shared trigger{c.shared_trigger_count !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-xs text-tingle-aqua tabular-nums">
+                    {Math.round(c.overlap_score * 100)}% overlap
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-[10px] text-surface-muted">
+            Ranked by trigger taxonomy overlap — potential style peers or collaboration partners.
+          </p>
         </section>
       )}
 
