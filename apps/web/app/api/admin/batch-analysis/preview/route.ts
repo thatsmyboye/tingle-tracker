@@ -8,6 +8,11 @@ import {
 } from "../shared";
 
 export async function POST(request: Request) {
+  const auth = await requireAdminAndGetServiceClient(request);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -21,11 +26,6 @@ export async function POST(request: Request) {
       { error: "Validation failed", issues: parsed.error.issues },
       { status: 422 }
     );
-  }
-
-  const auth = await requireAdminAndGetServiceClient(request);
-  if ("error" in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   try {

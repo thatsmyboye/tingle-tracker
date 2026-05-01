@@ -18,6 +18,19 @@ const IngestBodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  // ---- Verify auth (user-scoped Supabase client) ----------------------------
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+
   // ---- Parse + validate body ------------------------------------------------
 
   let body: unknown;
@@ -46,19 +59,6 @@ export async function POST(request: Request) {
       { status: 422 }
     );
   }
-
-  // ---- Verify auth (user-scoped Supabase client) ----------------------------
-
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
 
   // Verify the creator row belongs to the authenticated user
   const { data: creator, error: creatorError } = await userClient
