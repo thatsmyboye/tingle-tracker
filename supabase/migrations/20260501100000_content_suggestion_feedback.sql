@@ -37,7 +37,7 @@ CREATE POLICY "Users can update own suggestion feedback"
 -- Auto-update updated_at on row change
 CREATE TRIGGER set_updated_at_content_suggestion_feedback
   BEFORE UPDATE ON content_suggestion_feedback
-  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================
 -- Update get_recommended_content to incorporate feedback signals:
