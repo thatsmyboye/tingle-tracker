@@ -58,7 +58,12 @@ export async function POST(request: NextRequest) {
 
   const { priceId } = parsed.data;
 
-  if (ALLOWED_PRICE_IDS.size > 0 && !ALLOWED_PRICE_IDS.has(priceId)) {
+  // Fail closed: if no price IDs are configured in env vars, reject all requests
+  // rather than allowing any arbitrary Stripe price ID to be used.
+  if (ALLOWED_PRICE_IDS.size === 0) {
+    return NextResponse.json({ error: "Billing is not configured" }, { status: 503 });
+  }
+  if (!ALLOWED_PRICE_IDS.has(priceId)) {
     return NextResponse.json({ error: "Invalid price ID" }, { status: 400 });
   }
 
@@ -100,15 +105,18 @@ export async function POST(request: NextRequest) {
   }
 
   // ---- Create Checkout Session ---------------------------------------------
-  const origin = request.headers.get("origin") ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://tingle-tracker.vercel.app";
+  // Use a server-controlled origin rather than the request Origin header to
+  // prevent an attacker from redirecting users to an arbitrary domain after
+  // a successful Stripe checkout.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://tingle-tracker.vercel.app";
 
   try {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${origin}/dashboard?upgraded=1`,
-      cancel_url: `${origin}/pricing`,
+      success_url: `${appUrl}/dashboard?upgraded=1`,
+      cancel_url: `${appUrl}/pricing`,
       subscription_data: {
         metadata: { creator_id: creator.id, supabase_user_id: user.id },
       },

@@ -6,8 +6,18 @@ import {
 } from "@/app/api/admin/batch-analysis/shared";
 import { resolveYouTubeChannelMetadata } from "@/lib/youtube";
 
+const YOUTUBE_CHANNEL_RE =
+  /^(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:channel\/UC[\w-]{22}|@[\w.-]+|c\/[\w.-]+|user\/[\w.-]+)|^UC[\w-]{22}$/;
+
 const SubmitChannelSchema = z.object({
-  channelUrl: z.string().trim().min(1),
+  channelUrl: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .refine((v) => YOUTUBE_CHANNEL_RE.test(v), {
+      message: "Must be a valid YouTube channel URL or channel ID.",
+    }),
 });
 
 function getServiceClient() {

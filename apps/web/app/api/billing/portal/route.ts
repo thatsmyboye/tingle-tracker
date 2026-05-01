@@ -49,12 +49,14 @@ export async function POST(request: NextRequest) {
     apiVersion: "2026-03-25.dahlia",
   });
 
-  const origin = request.headers.get("origin") ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://tingle-tracker.vercel.app";
+  // Use a server-controlled URL rather than the request Origin header to
+  // prevent open redirect via a forged Origin.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://tingle-tracker.vercel.app";
 
   try {
     const session = await stripe.billingPortal.sessions.create({
       customer: creator.stripe_customer_id,
-      return_url: `${origin}/dashboard`,
+      return_url: `${appUrl}/dashboard`,
     });
 
     return NextResponse.json({ url: session.url }, { status: 200 });
