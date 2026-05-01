@@ -138,6 +138,8 @@ export async function POST(request: Request) {
     .insert({
       creator_id: creatorId,
       youtube_video_id: videoId,
+      youtube_channel_id: metadata.channelId,
+      channel_title: metadata.channelTitle,
       title: metadata.title,
       description: metadata.description,
       duration_seconds: metadata.durationSeconds || null,
