@@ -310,6 +310,30 @@ export interface SleepSession {
   updated_at: string;
 }
 
+// ---- Creator Intake Submissions ----------------------------------------------
+
+export type IntakeStatus = "pending" | "approved" | "rejected";
+
+export interface CreatorIntakeSubmission {
+  id: string;
+  submitted_by_user_id: string;
+  youtube_channel_id: string;
+  youtube_channel_url: string;
+  channel_title: string;
+  uploads_playlist_id: string;
+  status: IntakeStatus;
+  rejection_reason: string | null;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreatorIntakeSubmissionInsert = Omit<
+  CreatorIntakeSubmission,
+  "id" | "rejection_reason" | "reviewed_by_user_id" | "reviewed_at" | "created_at" | "updated_at"
+>;
+
 // ---- Insert / Update helpers ------------------------------------------------
 
 export type CreatorInsert = Omit<Creator, "id" | "created_at" | "updated_at" | "is_verified">;
