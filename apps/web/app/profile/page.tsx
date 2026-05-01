@@ -7,12 +7,24 @@
 // Auth-guarded by middleware.
 // =============================================================================
 
-import { useEffect, useState, useMemo, type FormEvent } from "react";
+import { useEffect, useState, useMemo, useCallback, type FormEvent } from "react";
 import Link from "next/link";
 import { cn } from "@tingle/ui";
 import { getSupabaseBrowserClient } from "@tingle/database";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserProfile, UserTriggerAffinityRow } from "@tingle/types";
+
+interface RecommendedTile {
+  content_id: string;
+  youtube_video_id: string;
+  title: string;
+  thumbnail_url: string | null;
+  creator_display_name: string | null;
+  /** Trigger labels that overlap with the user's affinity, capped at 3 */
+  matched_trigger_labels: string[];
+}
+
+type SuggestionFeedback = "thumbs_up" | "thumbs_down" | "hidden";
 
 const CATEGORY_STYLES = {
   visual: "border-tingle-aqua/30 bg-tingle-aqua/10 text-tingle-aqua",
@@ -56,6 +68,11 @@ export default function ProfilePage() {
 
   // Saving discovery toggle
   const [savingDiscovery, setSavingDiscovery] = useState(false);
+
+  const [suggestions, setSuggestions] = useState<RecommendedTile[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  // Tracks the optimistic feedback state for the current session
+  const [feedbackMap, setFeedbackMap] = useState<Map<string, SuggestionFeedback>>(new Map());
 
   const [totalTingles, setTotalTingles] = useState(0);
   const [listeningMinutes, setListeningMinutes] = useState(0);
@@ -219,6 +236,90 @@ export default function ProfilePage() {
     if (updateError) { setError(updateError.message); return; }
     setProfile((prev) => (prev ? { ...prev, discovery_enabled: next } : prev));
   }
+
+  // Fetch 3 recommended tiles once affinity is populated
+  useEffect(() => {
+    if (!user || affinity.length === 0) return;
+
+    const affinityTagIds = new Set(affinity.map((r) => r.trigger_tag_id));
+
+    setLoadingSuggestions(true);
+
+    const supabase = getSupabaseBrowserClient();
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { setLoadingSuggestions(false); return; }
+
+      try {
+        const res = await fetch("/api/discovery/recommended?limit=3", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+
+        const { results } = (await res.json()) as {
+          results: Array<{
+            content_id: string;
+            youtube_video_id: string;
+            title: string;
+            thumbnail_url: string | null;
+            creator_display_name: string | null;
+          }>;
+        };
+
+        if (!results || results.length === 0) return;
+
+        const contentIds = results.map((r) => r.content_id);
+
+        // Fetch trigger labels for these content items and intersect with user affinity
+        const { data: triggerRows } = await supabase
+          .from("content_triggers")
+          .select("content_id, trigger_tag_id, trigger_tags(label)")
+          .in("content_id", contentIds);
+
+        // Build a map: content_id → matched trigger labels (intersection with user affinity)
+        const matchMap = new Map<string, string[]>();
+        for (const row of triggerRows ?? []) {
+          if (!affinityTagIds.has(row.trigger_tag_id)) continue;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- joined shape
+          const label: string | null = (row as any).trigger_tags?.label ?? null;
+          if (!label) continue;
+          const existing = matchMap.get(row.content_id) ?? [];
+          existing.push(label);
+          matchMap.set(row.content_id, existing);
+        }
+
+        setSuggestions(
+          results.map((r) => ({
+            ...r,
+            matched_trigger_labels: (matchMap.get(r.content_id) ?? []).slice(0, 3),
+          })),
+        );
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    });
+  }, [user, affinity]);
+
+  const submitFeedback = useCallback(
+    async (contentId: string, feedback: SuggestionFeedback) => {
+      if (!user) return;
+      // Optimistically update local state
+      setFeedbackMap((prev) => new Map(prev).set(contentId, feedback));
+
+      const { data: { session } } = await getSupabaseBrowserClient().auth.getSession();
+      if (!session) return;
+
+      await fetch("/api/discovery/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ content_id: contentId, feedback }),
+      });
+    },
+    [user],
+  );
 
   // ---- Loading skeleton -------------------------------------------------------
 
@@ -562,6 +663,136 @@ export default function ProfilePage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Suggested for you — only shown once affinity is established */}
+        {affinity.length > 0 && (
+          <div className="mt-6 pt-5 border-t border-surface-border">
+            <p className="text-xs uppercase tracking-widest text-surface-muted mb-3">
+              Suggested for you
+            </p>
+
+            {loadingSuggestions ? (
+              <div className="grid grid-cols-3 gap-3">
+                {[1, 2, 3].map((n) => (
+                  <div
+                    key={n}
+                    className="rounded border border-surface-border bg-surface animate-pulse aspect-video"
+                  />
+                ))}
+              </div>
+            ) : suggestions.filter((s) => feedbackMap.get(s.content_id) !== "hidden").length === 0 ? (
+              <p className="text-xs text-surface-muted py-2">
+                No suggestions yet — keep logging tingles to improve your recommendations.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                {suggestions
+                  .filter((s) => feedbackMap.get(s.content_id) !== "hidden")
+                  .map((tile) => {
+                    const fb = feedbackMap.get(tile.content_id);
+                    return (
+                      <div
+                        key={tile.content_id}
+                        className="group flex flex-col rounded border border-surface-border bg-surface overflow-hidden"
+                      >
+                        {/* Thumbnail */}
+                        <Link
+                          href={`/listen/${tile.content_id}`}
+                          className="block relative aspect-video bg-surface-border flex-shrink-0"
+                        >
+                          {tile.thumbnail_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={tile.thumbnail_url}
+                              alt={tile.title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <svg
+                                className="w-6 h-6 text-surface-muted"
+                                fill="currentColor"
+                                viewBox="0 0 24 24"
+                                aria-hidden
+                              >
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            </div>
+                          )}
+                        </Link>
+
+                        {/* Info */}
+                        <div className="flex flex-col gap-1 p-2 flex-1">
+                          <Link
+                            href={`/listen/${tile.content_id}`}
+                            className="text-[11px] leading-snug text-white line-clamp-2 hover:text-tingle-aqua"
+                          >
+                            {tile.title}
+                          </Link>
+                          {tile.creator_display_name && (
+                            <p className="text-[10px] text-surface-muted truncate">
+                              {tile.creator_display_name}
+                            </p>
+                          )}
+
+                          {/* Matched trigger pills */}
+                          {tile.matched_trigger_labels.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {tile.matched_trigger_labels.map((label) => (
+                                <span
+                                  key={label}
+                                  className="rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wider border border-tingle-aqua/30 bg-tingle-aqua/10 text-tingle-aqua"
+                                >
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Feedback actions */}
+                        <div className="flex items-center justify-end gap-1 px-2 pb-2">
+                          <button
+                            onClick={() => submitFeedback(tile.content_id, "thumbs_up")}
+                            title="Good match"
+                            aria-pressed={fb === "thumbs_up"}
+                            className={cn(
+                              "rounded p-1 text-[11px] transition-colors",
+                              fb === "thumbs_up"
+                                ? "text-tingle-aqua"
+                                : "text-surface-muted hover:text-tingle-aqua",
+                            )}
+                          >
+                            👍
+                          </button>
+                          <button
+                            onClick={() => submitFeedback(tile.content_id, "thumbs_down")}
+                            title="Not for me"
+                            aria-pressed={fb === "thumbs_down"}
+                            className={cn(
+                              "rounded p-1 text-[11px] transition-colors",
+                              fb === "thumbs_down"
+                                ? "text-white"
+                                : "text-surface-muted hover:text-white",
+                            )}
+                          >
+                            👎
+                          </button>
+                          <button
+                            onClick={() => submitFeedback(tile.content_id, "hidden")}
+                            title="Hide this suggestion"
+                            className="rounded p-1 text-[11px] text-surface-muted hover:text-white transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
       </section>
