@@ -43,14 +43,8 @@ export default function HomePage() {
         </p>
         <div className="flex flex-wrap gap-3">
           <Link
-            href="/demo"
-            className="rounded-lg border border-tingle-aqua/50 bg-tingle-aqua/10 px-6 py-3 text-sm text-tingle-aqua hover:bg-tingle-aqua/20 transition-colors"
-          >
-            Try the demo →
-          </Link>
-          <Link
             href="/pricing"
-            className="rounded-lg border border-surface-border bg-surface-elevated px-6 py-3 text-sm text-white hover:border-tingle-aqua/30 transition-colors"
+            className="rounded-lg border border-tingle-purple/50 bg-tingle-purple/10 px-6 py-3 text-sm text-tingle-purple hover:bg-tingle-purple/20 transition-colors"
           >
             For creators
           </Link>
