@@ -17,9 +17,9 @@ export const tailwindConfig: Partial<Config> = {
         },
         surface: {
           DEFAULT: "#0A0A0F",
-          elevated: "#0D0D18",
-          border: "#1E1E2E",
-          muted: "#2A2A3F",
+          elevated: "#12121E",
+          border: "#252538",
+          muted: "#9898B8",
         },
       },
       fontFamily: {
