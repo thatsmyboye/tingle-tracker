@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseServerClient } from "@tingle/database";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // POST /api/billing/webhook
@@ -47,6 +49,7 @@ function getPlanFromPriceId(priceId: string): "pro" | "studio" | null {
 }
 
 export async function POST(request: NextRequest) {
+  if (IS_DORMANT) return dormantResponse();
   const body = await request.text();
   const sig = request.headers.get("stripe-signature");
 

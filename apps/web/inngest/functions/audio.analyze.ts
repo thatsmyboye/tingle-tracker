@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
+import { assertNotDormant } from "@/inngest/dormant";
 import { getSupabaseServerClient } from "@tingle/database";
 import {
   getAnthropicClient,
@@ -55,6 +56,7 @@ type AudioWorkerStatus = "used" | "skipped_unconfigured" | "failed";
 export const audioAnalyze = inngest.createFunction(
   { id: "audio.analyze", name: "Audio Analysis: Predict Tingle Heatmap", triggers: [{ event: "content/ingested" }] },
   async ({ event, step }) => {
+    assertNotDormant("audio.analyze");
     const { contentId } = EventPayloadSchema.parse(event.data);
     const db = getSupabaseServerClient();
 

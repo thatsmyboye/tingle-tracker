@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
+import { assertNotDormant } from "@/inngest/dormant";
 import { getSupabaseServerClient } from "@tingle/database";
 import {
   getAnthropicClient,
@@ -82,6 +83,7 @@ function inferPhraseBasedSlugCandidates(input: {
 export const contentProcess = inngest.createFunction(
   { id: "content.process", name: "Process Content: Classify Triggers", triggers: [{ event: "content/ingested" }] },
   async ({ event, step }) => {
+    assertNotDormant("content.process");
     const { contentId, creatorId } = EventPayloadSchema.parse(event.data);
     const db = getSupabaseServerClient();
 

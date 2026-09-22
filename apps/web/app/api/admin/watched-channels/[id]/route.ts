@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminAndGetServiceClient } from "@/app/api/admin/batch-analysis/shared";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 const PatchSchema = z.object({
   is_active: z.boolean().optional(),
@@ -15,6 +17,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (IS_DORMANT) return dormantResponse();
   const admin = await requireAdminAndGetServiceClient(request);
   if ("error" in admin) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
@@ -59,6 +62,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (IS_DORMANT) return dormantResponse();
   const admin = await requireAdminAndGetServiceClient(request);
   if ("error" in admin) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });

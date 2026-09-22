@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // GET /api/billing/health
@@ -40,6 +42,7 @@ const ALL_VARS = [
 ] as const;
 
 export async function GET() {
+  if (IS_DORMANT) return dormantResponse();
   const secretKey = process.env.STRIPE_SECRET_KEY ?? "";
 
   // ---- Only allow test-mode keys ------------------------------------------

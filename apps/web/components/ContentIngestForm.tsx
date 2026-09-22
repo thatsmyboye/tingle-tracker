@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { cn } from "@tingle/ui";
+import { IS_DORMANT } from "@/lib/dormancy";
 
 // =============================================================================
 // ContentIngestForm
@@ -31,6 +32,25 @@ export function ContentIngestForm({
 }: ContentIngestFormProps) {
   const [url, setUrl] = useState("");
   const [state, setState] = useState<FormState>({ status: "idle" });
+
+  // Ingest hits the YouTube Data API and then fans out into the Claude
+  // pipeline, so the form is replaced rather than merely disabled while
+  // dormant — the API route returns 503 regardless.
+  if (IS_DORMANT) {
+    return (
+      <div
+        className={cn(
+          "rounded-lg border border-surface-border bg-surface-elevated p-4",
+          className
+        )}
+      >
+        <p className="font-mono text-xs text-surface-muted">
+          Adding new videos is paused while Tingle Tracker is dormant. Videos
+          already in your library are still viewable.
+        </p>
+      </div>
+    );
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

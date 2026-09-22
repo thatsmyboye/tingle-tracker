@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { extractVideoId, fetchYouTubeMetadata } from "@/lib/youtube";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // POST /api/content/resolve
@@ -29,6 +31,7 @@ function inferCreatorDisplayName(channelTitle: string): string {
 }
 
 export async function POST(request: Request) {
+  if (IS_DORMANT) return dormantResponse();
   // ---- Parse + validate body ------------------------------------------------
 
   let body: unknown;

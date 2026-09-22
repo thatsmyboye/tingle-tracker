@@ -1,4 +1,6 @@
 import { inngest } from "@/inngest/client";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { assertNotDormant } from "@/inngest/dormant";
 import { getSupabaseServerClient } from "@tingle/database";
 import { fetchLatestVideosForChannel, fetchYouTubeMetadata } from "@/lib/youtube";
 
@@ -21,13 +23,17 @@ export const catalogRefresh = inngest.createFunction(
   {
     id: "catalog.refresh",
     name: "Catalog Refresh: Ingest New Videos from Watched Channels",
-    triggers: [
-      { cron: "0 3 * * 1" },
-      { event: "catalog/refresh.requested" },
-    ],
+    // While dormant the weekly cron trigger is omitted entirely, so even a
+    // successful sync cannot re-register a schedule. Only the manual
+    // "Refresh now" event trigger remains, and assertNotDormant() below stops
+    // that too.
+    triggers: IS_DORMANT
+      ? [{ event: "catalog/refresh.requested" }]
+      : [{ cron: "0 3 * * 1" }, { event: "catalog/refresh.requested" }],
     concurrency: { limit: 3 },
   },
   async ({ step }) => {
+    assertNotDormant("catalog.refresh");
     const db = getSupabaseServerClient();
 
     // ---- 1. Fetch active watched channels ------------------------------------

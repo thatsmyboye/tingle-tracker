@@ -1,12 +1,19 @@
 name: Database Migrations
 
+# DORMANT: the automatic "push to main" trigger is disabled.
+#
+# This workflow applies migrations straight to the production Supabase database
+# using SUPABASE_DB_URL. While the app is parked nobody should be able to alter
+# the production schema by merging a branch, so it now only runs when a human
+# starts it deliberately from the Actions tab.
+#
+# To re-arm, restore the push trigger:
+#   on:
+#     push:
+#       branches: [main]
+#       paths: ['supabase/migrations/**', 'supabase/seed.sql']
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'supabase/migrations/**'
-      - 'supabase/seed.sql'
+  workflow_dispatch:
 
 jobs:
   migrate:
