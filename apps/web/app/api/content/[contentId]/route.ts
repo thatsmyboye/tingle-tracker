@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // DELETE /api/content/[contentId]
@@ -12,6 +14,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: { contentId: string } }
 ) {
+  if (IS_DORMANT) return dormantResponse();
   const { contentId } = params;
 
   if (!contentId) {

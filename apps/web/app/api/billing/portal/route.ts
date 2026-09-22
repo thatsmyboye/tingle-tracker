@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseServerClient } from "@tingle/database";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // POST /api/billing/portal
@@ -13,6 +15,7 @@ import { getSupabaseServerClient } from "@tingle/database";
 // =============================================================================
 
 export async function POST(request: NextRequest) {
+  if (IS_DORMANT) return dormantResponse();
   // ---- Auth ----------------------------------------------------------------
   const authHeader = request.headers.get("Authorization");
   const token = authHeader?.replace("Bearer ", "");

@@ -7,6 +7,29 @@ ASMR companion platform. Creators link YouTube videos and receive tingle heatmap
 
 ---
 
+## Status: Dormant
+
+The app is parked. `/demo` and the marketing pages stay up; the Inngest cron,
+the Claude pipeline, YouTube ingestion, Stripe and every write path are
+switched off behind `IS_DORMANT` in `apps/web/lib/dormancy.ts`.
+
+The flag is **fail-safe** — dormant unless `NEXT_PUBLIC_TINGLE_DORMANT` is the
+exact string `"false"`. When adding a route or form that spends money or writes
+to the database, gate it the same way:
+
+```ts
+// API route — first line of the handler, before any auth or outbound call
+if (IS_DORMANT) return dormantResponse();   // from "@/lib/dormancy.server"
+
+// Inngest function — first line of the handler
+assertNotDormant("<job.id>");               // from "@/inngest/dormant"
+```
+
+See `docs/DORMANCY.md` for what is off, the manual/dashboard steps, and how to
+wake the app back up.
+
+---
+
 ## Monorepo Structure
 
 ```

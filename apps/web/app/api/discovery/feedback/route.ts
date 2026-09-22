@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 const BodySchema = z.object({
   content_id: z.string().uuid(),
@@ -8,6 +10,7 @@ const BodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  if (IS_DORMANT) return dormantResponse();
   const authHeader = request.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -1,11 +1,18 @@
 name: Deploy Audio Worker
 
+# DORMANT: the automatic "push to main" trigger is disabled.
+#
+# This workflow deploys the Fly.io audio worker (tingle-tracker-audio-worker).
+# The worker is being scaled to zero while the app is parked, so an automatic
+# redeploy would quietly bring a machine back up. Manual dispatch only.
+#
+# To re-arm, restore the push trigger:
+#   on:
+#     push:
+#       branches: [main]
+#       paths: ['worker/**']
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'worker/**'
+  workflow_dispatch:
 
 jobs:
   deploy:

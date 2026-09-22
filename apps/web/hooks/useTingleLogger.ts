@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerAdapterRef, TingleIntensity } from "@tingle/types";
 import { getSupabaseBrowserClient } from "@tingle/database";
+import { IS_DORMANT } from "@/lib/dormancy";
 import {
   hasBannerBeenShown,
   markBannerShown,
@@ -51,6 +52,8 @@ function writeQueue(queue: QueuedEvent[]): void {
 }
 
 async function flushQueue(): Promise<void> {
+  // Never drain a queue left over from before the app was parked.
+  if (IS_DORMANT) return;
   const queue = readQueue();
   if (queue.length === 0) return;
   const supabase = getSupabaseBrowserClient();
@@ -126,6 +129,12 @@ export function useTingleLogger({
 
   const log = useCallback(
     async (intensity: TingleIntensity = "3", notes?: string) => {
+      // Dormant: no tingle_events rows, and no signInAnonymously() call either
+      // — that one creates a real Supabase auth user on every first tap, so it
+      // would grow the user table unattended. The /demo logger is unaffected;
+      // it keeps its taps in local component state and never calls this hook.
+      if (IS_DORMANT) return;
+
       const now = Date.now();
       if (now - lastEventTime.current < DEBOUNCE_MS) {
         setIsDebouncing(true);

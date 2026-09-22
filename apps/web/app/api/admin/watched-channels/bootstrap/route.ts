@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAdminAndGetServiceClient } from "@/app/api/admin/batch-analysis/shared";
 import { resolveYouTubeChannelMetadata } from "@/lib/youtube";
 import { DIVERSITY_FIRST_STARTER_CHANNELS } from "@/lib/admin/watchedChannelsStarter";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 type BootstrapResult = {
   label: string;
@@ -12,6 +14,7 @@ type BootstrapResult = {
 };
 
 export async function POST(request: Request) {
+  if (IS_DORMANT) return dormantResponse();
   const admin = await requireAdminAndGetServiceClient(request);
   if ("error" in admin) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });

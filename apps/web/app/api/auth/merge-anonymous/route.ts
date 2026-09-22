@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // POST /api/auth/merge-anonymous
@@ -23,6 +25,7 @@ const BodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  if (IS_DORMANT) return dormantResponse();
   // ---- Auth: extract real user from JWT ------------------------------------
 
   const authHeader = request.headers.get("Authorization");

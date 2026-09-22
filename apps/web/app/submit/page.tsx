@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { getSupabaseBrowserClient } from "@tingle/database";
 import type { CreatorIntakeSubmission } from "@tingle/types";
 import SubmitForm from "./SubmitForm";
+import { DormantNotice } from "@/components/DormantNotice";
+import { IS_DORMANT } from "@/lib/dormancy";
 
 export default function SubmitPage() {
   const { user, isAnonymous, isLoading } = useAuth();
@@ -35,6 +37,17 @@ export default function SubmitPage() {
 
     loadSubmissions();
   }, [user, isAnonymous, isLoading]);
+
+  // Channel intake resolves the YouTube channel through the Data API and then
+  // queues it for the LLM pipeline — both metered. Off while dormant.
+  if (IS_DORMANT) {
+    return (
+      <DormantNotice
+        title="Channel submissions are paused"
+        detail="Tingle Tracker is dormant, so new channels aren't being accepted or reviewed right now."
+      />
+    );
+  }
 
   if (isLoading) {
     return (

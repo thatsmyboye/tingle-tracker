@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { z } from "zod";
 import { getSupabaseServerClient } from "@tingle/database";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // POST /api/billing/checkout
@@ -30,6 +32,7 @@ const ALLOWED_PRICE_IDS = new Set([
 ].filter(Boolean) as string[]);
 
 export async function POST(request: NextRequest) {
+  if (IS_DORMANT) return dormantResponse();
   // ---- Auth ----------------------------------------------------------------
   const authHeader = request.headers.get("Authorization");
   const token = authHeader?.replace("Bearer ", "");

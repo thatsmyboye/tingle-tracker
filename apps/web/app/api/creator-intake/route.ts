@@ -5,6 +5,8 @@ import {
   createUserClientFromAuthHeader,
 } from "@/app/api/admin/batch-analysis/shared";
 import { resolveYouTubeChannelMetadata } from "@/lib/youtube";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 const YOUTUBE_CHANNEL_RE =
   /^(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:channel\/UC[\w-]{22}|@[\w.-]+|c\/[\w.-]+|user\/[\w.-]+)|^UC[\w-]{22}$/;
@@ -43,6 +45,7 @@ async function resolveUser(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (IS_DORMANT) return dormantResponse();
   const auth = await resolveUser(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

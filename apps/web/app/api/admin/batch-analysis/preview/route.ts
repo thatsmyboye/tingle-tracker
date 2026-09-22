@@ -6,8 +6,11 @@ import {
   requireAdminAndGetServiceClient,
   type BatchLinkPreview,
 } from "../shared";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 export async function POST(request: Request) {
+  if (IS_DORMANT) return dormantResponse();
   const auth = await requireAdminAndGetServiceClient(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

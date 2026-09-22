@@ -12,6 +12,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { SignUpForm } from "@/components/AuthForms";
+import { DormantNotice } from "@/components/DormantNotice";
+import { IS_DORMANT } from "@/lib/dormancy";
 
 function SignUpContent() {
   const router = useRouter();
@@ -71,6 +73,19 @@ function SignUpContent() {
 }
 
 export default function SignUpPage() {
+  // Signups are frozen while the app is dormant. Existing accounts can still
+  // sign in at /login — only the creation of new ones is switched off, so the
+  // user table and the Supabase free-tier quota stay put while nobody is
+  // watching the app.
+  if (IS_DORMANT) {
+    return (
+      <DormantNotice
+        title="Sign-ups are paused"
+        detail="Tingle Tracker is dormant, so new accounts aren't being created right now. Existing accounts can still sign in."
+      />
+    );
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface px-4">
       <Suspense

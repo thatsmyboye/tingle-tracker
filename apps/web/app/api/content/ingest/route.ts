@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { extractVideoId, fetchYouTubeMetadata } from "@/lib/youtube";
 import { inngest } from "@/inngest/client";
+import { IS_DORMANT } from "@/lib/dormancy";
+import { dormantResponse } from "@/lib/dormancy.server";
 
 // =============================================================================
 // POST /api/content/ingest
@@ -18,6 +20,7 @@ const IngestBodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  if (IS_DORMANT) return dormantResponse();
   // ---- Verify auth (user-scoped Supabase client) ----------------------------
 
   const authHeader = request.headers.get("Authorization");
